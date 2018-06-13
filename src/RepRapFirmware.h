@@ -30,6 +30,7 @@ Licence: GPL
 #include "ecv.h"
 #include "Core.h"
 
+typedef uint32_t InterruptMode;
 typedef uint16_t PwmFrequency;		// type used to represent a PWM frequency. 0 sometimes means "default".
 
 #include "Configuration.h"

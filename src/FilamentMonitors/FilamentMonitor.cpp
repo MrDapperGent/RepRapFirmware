@@ -46,7 +46,7 @@ bool FilamentMonitor::ConfigurePin(GCodeBuffer& gb, const StringRef& reply, Inte
 		endstopNumber = endstop;
 		pin = p;
 		haveIsrStepsCommanded = false;
-		if (interruptMode != INTERRUPT_MODE_NONE && !attachInterrupt(pin, InterruptEntry, interruptMode, this))
+		if (interruptMode != DEFAULT && !attachInterrupt(pin, InterruptEntry, interruptMode, this))
 		{
 			reply.copy("unsuitable endstop number");
 			return true;

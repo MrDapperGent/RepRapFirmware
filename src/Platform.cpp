@@ -2024,7 +2024,7 @@ void Platform::InitialiseInterrupts()
 	// Interrupt for 4-pin PWM fan sense line
 	if (coolingFanRpmPin != NoPin)
 	{
-		attachInterrupt(coolingFanRpmPin, FanInterrupt, INTERRUPT_MODE_FALLING, nullptr);
+		attachInterrupt(coolingFanRpmPin, FanInterrupt, FALLING, nullptr);
 	}
 
 	// Tick interrupt for ADC conversions

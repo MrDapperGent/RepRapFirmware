@@ -17,7 +17,7 @@ SimpleFilamentMonitor::SimpleFilamentMonitor(unsigned int extruder, int type)
 // Configure this sensor, returning true if error and setting 'seen' if we processed any configuration parameters
 bool SimpleFilamentMonitor::Configure(GCodeBuffer& gb, const StringRef& reply, bool& seen)
 {
-	if (ConfigurePin(gb, reply, INTERRUPT_MODE_NONE, seen))
+	if (ConfigurePin(gb, reply, DEFAULT, seen))
 	{
 		return true;
 	}
