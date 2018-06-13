@@ -155,8 +155,11 @@ public:
 	void SetAxisNotHomed(unsigned int axis)								// Tell us that the axis is not homed
 		{ ClearBit(axesHomed, axis); }
 
-	float GetSpeedFactor() const { return speedFactor * MinutesToSeconds; }	// Return the current speed factor
-	float GetExtrusionFactor(size_t extruder) { return extrusionFactors[extruder]; } // Return the current extrusion factors
+	float GetSpeedFactor() const;										// Return the current speed factor
+	void SetSpeedFactor(float factor);									// Set the speed factor
+	float GetExtrusionFactor(size_t extruder);							// Return the current extrusion factors
+	void SetExtrusionFactor(size_t extruder, float factor);				// Set an extrusion factor
+
 	float GetRawExtruderTotalByDrive(size_t extruder) const;			// Get the total extrusion since start of print, for one drive
 	float GetTotalRawExtrusion() const { return rawExtruderTotal; }		// Get the total extrusion since start of print, all drives
 	float GetBabyStepOffset() const { return currentBabyStepZOffset; }	// Get the current baby stepping Z offset
@@ -207,7 +210,15 @@ public:
 
 #if SUPPORT_12864_LCD
 	bool ProcessCommandFromLcd(const char *cmd);						// Process a GCode command from the 12864 LCD returning true if the command was accepted
+	float GetItemCurrentTemperature(unsigned int itemNumber) const;
+	float GetItemActiveTemperature(unsigned int itemNumber) const;
+	float GetItemStandbyTemperature(unsigned int itemNumber) const;
+	void SetItemActiveTemperature(unsigned int itemNumber, float temp);
+	void SetItemStandbyTemperature(unsigned int itemNumber, float temp);
+	float GetMappedFanSpeed() const { return lastDefaultFanSpeed; }		// Get the mapped fan speed
 #endif
+
+	void SetMappedFanSpeed(float f);									// Set the mapped fan speed
 
 private:
 	GCodes(const GCodes&);												// private copy constructor to prevent copying
@@ -352,6 +363,10 @@ private:
 	void SaveResumeInfo(bool wasPowerFailure);
 
 	const char* GetMachineModeString() const;							// Get the name of the current machine mode
+
+#if SUPPORT_12864_LCD
+	int GetHeaterNumber(unsigned int itemNumber) const;
+#endif
 
 	Platform& platform;													// The RepRap machine
 

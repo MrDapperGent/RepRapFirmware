@@ -184,7 +184,7 @@ constexpr size_t GCODE_LENGTH = 101;					// maximum number of non-comment charac
 constexpr size_t MaxMessageLength = 256;
 
 #if SAM4E || SAM4S || SAME70
-constexpr size_t MaxFilenameLength = 120;					// Maximum length of a filename including the path
+constexpr size_t MaxFilenameLength = 120;				// Maximum length of a filename including the path
 #else
 constexpr size_t MaxFilenameLength = 100;
 #endif
@@ -251,6 +251,7 @@ constexpr size_t FILE_BUFFER_SIZE = 256;
 #define MACRO_DIR "0:/macros/"						// Ditto - Macro files
 #define SCANS_DIRECTORY "0:/scans/"					// Directory for uploaded 3D scans
 #define FILAMENTS_DIRECTORY "0:/filaments/"			// Directory for filament configurations
+#define MENU_DIR "0:/menu/"							// Directory for menu files
 
 #define CONFIG_FILE "config.g"
 #define DEFAULT_FILE "default.g"
