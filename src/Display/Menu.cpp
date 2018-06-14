@@ -53,7 +53,7 @@
 
 Menu::Menu(Lcd7920& refLcd, const LcdFont * const fnts[], size_t nFonts)
 	: lcd(refLcd), fonts(fnts), numFonts(nFonts),
-	  selectableItems(nullptr), unSelectableItems(nullptr), numNestedMenus(0), numSelectableItems(0), highlightedItem(0), itemIsSelected(false)
+	  selectableItems(nullptr), unSelectableItems(nullptr), numNestedMenus(0), numSelectableItems(0), m_nHighlightedItem(0), itemIsSelected(false)
 {
 }
 
@@ -160,27 +160,27 @@ const char *Menu::ParseCommand(char *commandWord)
 			break;
 
 		case 'R':
-			row = strtoul(args, &args, 10);
+			row = strtoul(args, &args, 10u);
 			break;
 
 		case 'C':
-			column = strtoul(args, &args, 10);
+			column = strtoul(args, &args, 10u);
 			break;
 
 		case 'F':
-			fontNumber = min<unsigned int>(strtoul(args, &args, 10), numFonts - 1);
+			fontNumber = min<unsigned int>(strtoul(args, &args, 10u), numFonts - 1);
 			break;
 
 		case 'D':
-			decimals = strtoul(args, &args, 10);
+			decimals = strtoul(args, &args, 10u);
 			break;
 
 		case 'N':
-			nparam = strtoul(args, &args, 10);
+			nparam = strtoul(args, &args, 10u);
 			break;
 
 		case 'W':
-			width = strtoul(args, &args, 10);
+			width = strtoul(args, &args, 10u);
 			break;
 
 		case 'T':
@@ -247,7 +247,7 @@ const char *Menu::ParseCommand(char *commandWord)
 	{
 		const char * const actionString = AppendString(action);
 		const char * const dir = AppendString(fname);
-		AddItem(new FilesMenuItem(row, column, fontNumber, actionString, dir, nparam), true);
+		AddItem(new FilesMenuItem(row, column, fontNumber, actionString, dir, nparam, fonts[fontNumber]->height), true);
 		//TODO update row by a sensible value e.g. nparam * text row height
 		column = 0;
 	}
@@ -274,7 +274,8 @@ void Menu::Reload()
 		unSelectableItems = unSelectableItems->GetNext();
 		delete current;
 	}
-	numSelectableItems = highlightedItem = 0;
+	numSelectableItems = 0;
+	m_nHighlightedItem = 0;
 
 	lcd.SetRightMargin(NumCols - currentMargin);
 	const char * const fname = filenames[numNestedMenus - 1].c_str();
@@ -301,6 +302,7 @@ void Menu::Reload()
 			{
 				break;
 			}
+
 			char * const commandLine = SkipWhitespace(buffer);
 			const char * const errMsg = ParseCommand(commandLine);
 			if (errMsg != nullptr)
@@ -368,22 +370,40 @@ void Menu::EncoderAction(int action)
 		}
 		else if (action != 0)
 		{
-			highlightedItem += action;
-			while (highlightedItem < 0)
+			// Based mainly on file listing requiring we handle list of unknown length
+			// before moving on to the next selectable item at the Menu level, we let the
+			// currently selected MenuItem try to handle the scroll action itself.  It will
+			// return the remainder of the scrolling that it was unable to accommodate.
+
+			MenuItem * const oStartItem = FindHighlightedItem();
+
+			// Let the menu item attempt to handle scroll wheel first
+			action = oStartItem->Advance(action);
+
+			if (0 != action)
 			{
-				highlightedItem += numSelectableItems;
-			}
-			while (highlightedItem >= numSelectableItems)
-			{
-				highlightedItem -= numSelectableItems;
+				// Otherwise we move through the remaining selectable menu items
+				m_nHighlightedItem += action;
+				while (m_nHighlightedItem < 0)
+				{
+					m_nHighlightedItem += numSelectableItems;
+				}
+				while (m_nHighlightedItem >= numSelectableItems)
+				{
+					m_nHighlightedItem -= numSelectableItems;
+				}
+
+				// Let the newly selected MenuItem handle any selection setup
+				MenuItem *const oNewItem = FindHighlightedItem();
+				oNewItem->Enter(action > 0);
 			}
 		}
 		else
 		{
-			MenuItem * const item = FindHighlightedItem();
+			MenuItem *const item = FindHighlightedItem();
 			if (item != nullptr)
 			{
-				const char * const cmd = item->Select();
+				const char *const cmd = item->Select();
 				if (cmd != nullptr)
 				{
 					if (cmd[0] == 'G' || cmd[0] == 'M' || cmd[0] == 'T')
@@ -439,25 +459,27 @@ void Menu::LoadImage(const char *fname)
 void Menu::Refresh()
 {
 	const PixelNumber rightMargin = NumCols - currentMargin;
-	int currentItem = 0;
+	int nItemBeingDrawnIndex = 0;
+
 	for (MenuItem *item = selectableItems; item != nullptr; item = item->GetNext())
 	{
 		lcd.SetFont(fonts[item->GetFontNumber()]);
-		item->Draw(lcd, rightMargin, currentItem == highlightedItem);
-		++currentItem;
+		item->Draw(lcd, rightMargin, (nItemBeingDrawnIndex == m_nHighlightedItem));
+		++nItemBeingDrawnIndex;
 	}
+
 	for (MenuItem *item = unSelectableItems; item != nullptr; item = item->GetNext())
 	{
 		lcd.SetFont(fonts[item->GetFontNumber()]);
 		item->Draw(lcd, rightMargin, false);
-		++currentItem;
+		// ++nItemBeingDrawnIndex; // unused
 	}
 }
 
 MenuItem *Menu::FindHighlightedItem() const
 {
 	MenuItem *p = selectableItems;
-	for (int n = highlightedItem; n > 0 && p != nullptr; --n)
+	for (int n = m_nHighlightedItem; n > 0 && p != nullptr; --n)
 	{
 		p = p->GetNext();
 	}
@@ -465,3 +487,4 @@ MenuItem *Menu::FindHighlightedItem() const
 }
 
 // End
+

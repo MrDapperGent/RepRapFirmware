@@ -40,16 +40,15 @@ void Display::Start()
 	menu.Load("main");
 }
 
-void Display::Spin(bool full)
+void Display::Spin(const bool bIncludeLCDUpdate)
 {
 	encoder.Poll();
 
-	if (full)
+	if (bIncludeLCDUpdate)
 	{
 		if (!updatingFirmware)
 		{
 			// Check encoder and update display here
-			// For now we just test the encoder functionality
 			const int ch = encoder.GetChange();
 			if (ch != 0)
 			{
@@ -64,7 +63,7 @@ void Display::Spin(bool full)
 		lcd.FlushSome();
 	}
 
-	if (beepActive && millis() - whenBeepStarted > beepLength)
+	if (beepActive && millis() > m_uWhenBeepShouldEnd)
 	{
 		IoPort::WriteAnalog(LcdBeepPin, 0.0, 0);
 	}
@@ -84,10 +83,12 @@ void Display::Exit()
 	lcd.FlushAll();
 }
 
+// NOTE: nothing enforces that this beep concludes before another is begun;
+//   that is, in rapid succession of commands, only the last beep issued
+//   will be heard by the user
 void Display::Beep(unsigned int frequency, unsigned int milliseconds)
 {
-	whenBeepStarted = millis();
-	beepLength = milliseconds;
+	m_uWhenBeepShouldEnd = millis() + milliseconds;
 	beepActive = true;
 	IoPort::WriteAnalog(LcdBeepPin, 0.5, (uint16_t)frequency);
 }
