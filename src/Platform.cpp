@@ -565,7 +565,7 @@ void Platform::Init()
 	DuetExpansion::AdditionalOutputInit();
 
 #elif defined(DUET_M)
-	numSmartDrivers = 5;										// TODO for now we assume that additional drivers are dumb
+	numSmartDrivers = 7;										// TODO for now we assume that additional drivers are dumb
 #endif
 
 #if HAS_SMART_DRIVERS
