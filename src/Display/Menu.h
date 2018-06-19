@@ -50,7 +50,7 @@ private:
 	String<MaxMenuFilenameLength> filenames[MaxMenuNesting];
 	size_t numNestedMenus;
 	int numSelectableItems;
-	int highlightedItem;
+	int m_nHighlightedItem;
 	bool itemIsSelected;
 
 	// Variables used while parsing
