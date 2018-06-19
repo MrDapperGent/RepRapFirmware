@@ -158,6 +158,11 @@ void RepRap::Init()
 	hsmci_set_idle_func(hsmciIdle);
 #endif
 	platform->MessageF(UsbMessage, "%s is up and running.\n", FIRMWARE_NAME);
+
+#if SUPPORT_12864_LCD
+	display->Start();
+#endif
+
 	fastLoop = UINT32_MAX;
 	slowLoop = 0;
 	lastTime = micros();
@@ -513,19 +518,6 @@ Tool* RepRap::GetCurrentOrDefaultTool() const
 {
 	// If a tool is already selected, use that one, else use the lowest-numbered tool which is the one at the start of the tool list
 	return (currentTool != nullptr) ? currentTool : toolList;
-}
-
-void RepRap::SetToolVariables(int toolNumber, const float* standbyTemperatures, const float* activeTemperatures)
-{
-	Tool* tool = GetTool(toolNumber);
-	if (tool != nullptr)
-	{
-		tool->SetVariables(standbyTemperatures, activeTemperatures);
-	}
-	else
-	{
-		platform->MessageF(ErrorMessage, "Attempt to set variables for a non-existent tool: %d.\n", toolNumber);
-	}
 }
 
 bool RepRap::IsHeaterAssignedToTool(int8_t heater) const
