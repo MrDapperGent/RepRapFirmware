@@ -19,21 +19,27 @@ public:
 	Display();
 
 	void Init();
+	void Start();
 	GCodeResult Configure(GCodeBuffer& gb, const StringRef& reply);
-	void Spin(bool full);
+	void Spin(const bool bIncludeLCDUpdate);
 	void Exit();
 	void Beep(unsigned int frequency, unsigned int milliseconds);
+	void SuccessBeep();
+	void ErrorBeep();
 	bool IsPresent() const { return present; }
 	void UpdatingFirmware();
 
 private:
 	Lcd7920 lcd;
 	RotaryEncoder encoder;
-	Menu *mainMenu;
-	uint32_t whenBeepStarted;
-	uint32_t beepLength;
+	Menu menu;
+
+	uint32_t m_uWhenBeepShouldEnd;
+
 	bool present;
 	bool beepActive;
+	bool updatingFirmware;
 };
 
 #endif /* SRC_DISPLAY_DISPLAY_H_ */
+

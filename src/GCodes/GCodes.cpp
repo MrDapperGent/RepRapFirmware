@@ -3310,25 +3310,30 @@ GCodeResult GCodes::SetOrReportOffsets(GCodeBuffer &gb, const StringRef& reply)
 	// Deal with setting temperatures
 	bool settingTemps = false;
 	size_t hCount = tool->HeaterCount();
-	float standby[Heaters];
-	float active[Heaters];
 	if (hCount > 0)
 	{
-		tool->GetVariables(standby, active);
 		if (gb.Seen('R'))
 		{
-			gb.GetFloatArray(standby, hCount, true);
 			settingTemps = true;
+			float standby[Heaters];
+			gb.GetFloatArray(standby, hCount, true);
+			for (size_t h = 0; h < hCount; ++h)
+			{
+				tool->SetToolHeaterStandbyTemperature(h, standby[h]);
+			}
 		}
 		if (gb.Seen('S'))
 		{
-			gb.GetFloatArray(active, hCount, true);
 			settingTemps = true;
-		}
-
-		if (settingTemps && simulationMode == 0)
-		{
-			tool->SetVariables(standby, active);
+			if (simulationMode == 0)
+			{
+				float active[Heaters];
+				gb.GetFloatArray(active, hCount, true);
+				for (size_t h = 0; h < hCount; ++h)
+				{
+					tool->SetToolHeaterActiveTemperature(h, active[h]);
+				}
+			}
 		}
 	}
 
@@ -3345,7 +3350,7 @@ GCodeResult GCodes::SetOrReportOffsets(GCodeBuffer &gb, const StringRef& reply)
 			reply.cat(", active/standby temperature(s):");
 			for (size_t heater = 0; heater < hCount; heater++)
 			{
-				reply.catf(" %.1f/%.1f", (double)active[heater], (double)standby[heater]);
+				reply.catf(" %.1f/%.1f", (double)tool->GetToolHeaterActiveTemperature(heater), (double)tool->GetToolHeaterStandbyTemperature(heater));
 			}
 		}
 	}
@@ -3532,6 +3537,13 @@ void GCodes::SetMappedFanSpeed()
 			}
 		}
 	}
+}
+
+// Set the mapped fan speed
+void GCodes::SetMappedFanSpeed(float f)
+{
+	lastDefaultFanSpeed = f;
+	SetMappedFanSpeed();
 }
 
 // Save the speeds of all fans
@@ -3938,18 +3950,14 @@ void GCodes::SetToolHeaters(Tool *tool, float temperature, bool both)
 		return;
 	}
 
-	float standby[Heaters];
-	float active[Heaters];
-	tool->GetVariables(standby, active);
 	for (size_t h = 0; h < tool->HeaterCount(); h++)
 	{
-		active[h] = temperature;
+		tool->SetToolHeaterActiveTemperature(h, temperature);
 		if (both)
 		{
-			standby[h] = temperature;
+			tool->SetToolHeaterStandbyTemperature(h, temperature);
 		}
 	}
-	tool->SetVariables(standby, active);
 }
 
 // Retract or un-retract filament, returning true if movement has been queued, false if this needs to be called again
@@ -4820,6 +4828,33 @@ void GCodes::CheckHeaterFault()
 	}
 }
 
+// Return the current speed factor
+float GCodes::GetSpeedFactor() const
+{
+	return speedFactor * MinutesToSeconds;
+}
+
+// Set the speed factor
+void GCodes::SetSpeedFactor(float factor)
+{
+	speedFactor = constrain<float>(factor, 0.1, 5.0) / MinutesToSeconds;
+}
+
+// Return a current extrusion factor
+float GCodes::GetExtrusionFactor(size_t extruder)
+{
+	return (extruder < numExtruders) ? extrusionFactors[extruder] : 0.0;
+}
+
+// Set an extrusion factor
+void GCodes::SetExtrusionFactor(size_t extruder, float factor)
+{
+	if (extruder < numExtruders)
+	{
+		extrusionFactors[extruder] = constrain<float>(factor, 0.0, 2.0);
+	}
+}
+
 #if SUPPORT_12864_LCD
 
 // Process a GCode command from the 12864 LCD returning true if the command was accepted
@@ -4831,6 +4866,79 @@ bool GCodes::ProcessCommandFromLcd(const char *cmd)
 		return true;
 	}
 	return false;
+}
+
+int GCodes::GetHeaterNumber(unsigned int itemNumber) const
+{
+	if (itemNumber < 80)
+	{
+		const Tool * const tool = reprap.GetTool(itemNumber);
+		return (tool != nullptr && tool->HeaterCount() != 0) ? tool->Heater(0) : -1;
+	}
+	if (itemNumber < 90)
+	{
+		return (itemNumber < 80 + NumBedHeaters) ? reprap.GetHeat().GetBedHeater(itemNumber - 80) : -1;
+	}
+	return (itemNumber < 90 + NumChamberHeaters) ? reprap.GetHeat().GetChamberHeater(itemNumber - 90) : -1;
+}
+
+float GCodes::GetItemCurrentTemperature(unsigned int itemNumber) const
+{
+	return reprap.GetHeat().GetTemperature(GetHeaterNumber(itemNumber));
+}
+
+float GCodes::GetItemActiveTemperature(unsigned int itemNumber) const
+{
+	if (itemNumber < 80)
+	{
+		const Tool * const tool = reprap.GetTool(itemNumber);
+		return (tool != nullptr) ? tool->GetToolHeaterActiveTemperature(0) : 0.0;
+	}
+
+	return reprap.GetHeat().GetActiveTemperature(GetHeaterNumber(itemNumber));
+}
+
+float GCodes::GetItemStandbyTemperature(unsigned int itemNumber) const
+{
+	if (itemNumber < 80)
+	{
+		const Tool * const tool = reprap.GetTool(itemNumber);
+		return (tool != nullptr) ? tool->GetToolHeaterStandbyTemperature(0) : 0.0;
+	}
+
+	return reprap.GetHeat().GetStandbyTemperature(GetHeaterNumber(itemNumber));
+}
+
+void GCodes::SetItemActiveTemperature(unsigned int itemNumber, float temp)
+{
+	if (itemNumber < 80)
+	{
+		Tool * const tool = reprap.GetTool(itemNumber);
+		if (tool != nullptr)
+		{
+			tool->SetToolHeaterActiveTemperature(0, temp);
+		}
+	}
+	else
+	{
+		reprap.GetHeat().SetActiveTemperature(GetHeaterNumber(itemNumber), temp);
+	}
+}
+
+void GCodes::SetItemStandbyTemperature(unsigned int itemNumber, float temp)
+{
+	if (itemNumber < 80)
+	{
+		Tool * const tool = reprap.GetTool(itemNumber);
+		if (tool != nullptr)
+		{
+			tool->SetToolHeaterStandbyTemperature(0, temp);
+		}
+	}
+	else
+	{
+		reprap.GetHeat().SetStandbyTemperature(GetHeaterNumber(itemNumber), temp);
+	}
 }
 
 #endif
