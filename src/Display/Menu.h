@@ -60,6 +60,8 @@ private:
 	PixelNumber currentMargin;
 	PixelNumber row, column;
 
+	PixelNumber m_tRowOffset;
+
 	// Buffer for commands to be executed when the user presses a selected item
 	char commandBuffer[CommandBufferSize];
 };

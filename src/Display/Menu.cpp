@@ -53,7 +53,7 @@
 
 Menu::Menu(Lcd7920& refLcd, const LcdFont * const fnts[], size_t nFonts)
 	: lcd(refLcd), fonts(fnts), numFonts(nFonts),
-	  selectableItems(nullptr), unSelectableItems(nullptr), numNestedMenus(0), numSelectableItems(0), m_nHighlightedItem(0), itemIsSelected(false)
+	  selectableItems(nullptr), unSelectableItems(nullptr), numNestedMenus(0), numSelectableItems(0), m_nHighlightedItem(0), itemIsSelected(false), m_tRowOffset(0)
 {
 }
 
@@ -63,6 +63,7 @@ void Menu::Load(const char* filename)
 	{
 		filenames[numNestedMenus].copy(filename);
 
+		m_tRowOffset = 0;
 		if (numNestedMenus == 0)
 		{
 			currentMargin = 0;
@@ -93,6 +94,7 @@ void Menu::Pop()
 {
 	// currentMargin = 0;
 	lcd.Clear(0, 0, NumRows, NumCols);
+	m_tRowOffset = 0;
 	--numNestedMenus;
 	Reload();
 }
@@ -220,6 +222,9 @@ const char *Menu::ParseMenuLine(char *commandWord)
 	// Create an object resident in memory corresponding to the menu layout file's description
 	if (StringEquals(commandWord, "text"))
 	{
+		const char *const acText = AppendString(text);
+		AddItem(new TextMenuItem(row, column, fontNumber, acText), false);
+
 		lcd.SetFont(fonts[fontNumber]);
 		lcd.print(text);
 		row = lcd.GetRow() - currentMargin;
@@ -412,6 +417,14 @@ void Menu::EncoderAction(int action)
 				// Let the newly selected MenuItem handle any selection setup
 				MenuItem *const oNewItem = FindHighlightedItem();
 				oNewItem->Enter(action > 0);
+
+				PixelNumber tLastOffset = m_tRowOffset;
+				m_tRowOffset = oNewItem->GetVisibilityRowOffset(tLastOffset, fonts[oNewItem->GetFontNumber()]);
+
+				if (m_tRowOffset != tLastOffset)
+				{
+					lcd.Clear(0, 0, NumRows, NumCols);
+				}
 			}
 		}
 		else // scroll wheel clicked without an item in the selected state
@@ -484,14 +497,14 @@ void Menu::Refresh()
 	for (MenuItem *item = selectableItems; item != nullptr; item = item->GetNext())
 	{
 		lcd.SetFont(fonts[item->GetFontNumber()]);
-		item->Draw(lcd, rightMargin, (nItemBeingDrawnIndex == m_nHighlightedItem));
+		item->Draw(lcd, rightMargin, (nItemBeingDrawnIndex == m_nHighlightedItem), m_tRowOffset);
 		++nItemBeingDrawnIndex;
 	}
 
 	for (MenuItem *item = unSelectableItems; item != nullptr; item = item->GetNext())
 	{
 		lcd.SetFont(fonts[item->GetFontNumber()]);
-		item->Draw(lcd, rightMargin, false);
+		item->Draw(lcd, rightMargin, false, m_tRowOffset);
 		// ++nItemBeingDrawnIndex; // unused
 	}
 }

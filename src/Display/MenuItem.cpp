@@ -28,6 +28,35 @@ MenuItem::MenuItem(PixelNumber r, PixelNumber c, FontNumber fn)
 	*root = item;
 }
 
+TextMenuItem *TextMenuItem::freelist = nullptr;
+
+TextMenuItem::TextMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, const char* t)
+	: MenuItem(r, c, fn), text(t)
+{
+}
+
+void TextMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight, PixelNumber tOffset)
+{
+	lcd.SetCursor(row - tOffset, column);
+	// lcd.SetRightMargin(rightMargin);
+
+	lcd.print(text);
+
+	// lcd.SetCursor(row + currentMargin, column + currentMargin);
+	// lcd.SetFont(fonts[fontNumber]);
+	// lcd.print(text);
+	// row = lcd.GetRow() - currentMargin;
+	// column = lcd.GetColumn() - currentMargin;
+
+	// lcd.ClearToMargin();
+}
+
+// TODO need to clean up this design since it isn't meaningful to select a text item
+const char* TextMenuItem::Select()
+{
+	return text;
+}
+
 ButtonMenuItem *ButtonMenuItem::freelist = nullptr;
 
 ButtonMenuItem::ButtonMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, const char* t, const char* cmd, char const* acFile)
@@ -35,9 +64,9 @@ ButtonMenuItem::ButtonMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, cons
 {
 }
 
-void ButtonMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight)
+void ButtonMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight, PixelNumber tOffset)
 {
-	lcd.SetCursor(row, column);
+	lcd.SetCursor(row - tOffset, column);
 	lcd.SetRightMargin(rightMargin);
 
 	lcd.TextInvert(highlight);
@@ -62,12 +91,35 @@ const char* ButtonMenuItem::Select()
 	return szPtr;
 }
 
+PixelNumber ButtonMenuItem::GetVisibilityRowOffset(PixelNumber tCurrentOffset, const LcdFont *oFont)
+{
+	PixelNumber tOffsetRequest = tCurrentOffset;
+
+	// Are we off the bottom of the visible window?
+	if (64 + tCurrentOffset <= row + oFont->height + 1)
+	{
+		// tOffsetRequest = tCurrentOffset + row - 3;
+		tOffsetRequest = row - 3;
+	}
+
+	// Should we move back up?
+	if (row < tCurrentOffset + 3)
+	{
+		if (row > 3)
+			tOffsetRequest = row - 3;
+		else
+			tOffsetRequest = 0;
+	}
+
+	return tOffsetRequest;
+}
+
 ValueMenuItem::ValueMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, PixelNumber w, unsigned int v, unsigned int d)
 	: MenuItem(r, c, fn), valIndex(v), currentValue(0.0), width(w), decimals(d), adjusting(false)
 {
 }
 
-void ValueMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight)
+void ValueMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight, PixelNumber tOffset)
 {
 	lcd.SetCursor(row, column);
 	lcd.SetRightMargin(min<PixelNumber>(column + width, rightMargin));
@@ -179,6 +231,13 @@ const char* ValueMenuItem::Select()
 {
 	adjusting = true;
 	return nullptr;
+}
+
+PixelNumber ValueMenuItem::GetVisibilityRowOffset(PixelNumber tCurrentOffset, const LcdFont *oFont)
+{
+	// TODO
+
+	return 0;
 }
 
 bool ValueMenuItem::Adjust_SelectHelper()
@@ -327,7 +386,7 @@ void FilesMenuItem::EnterDirectory(const char *acDir)
 	}
 }
 
-void FilesMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight)
+void FilesMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight, PixelNumber tOffset)
 {
 	lcd.SetCursor(row, column);
 	lcd.SetRightMargin(rightMargin);
@@ -489,6 +548,13 @@ const char* FilesMenuItem::Select()
 
 		return m_acCommand; // would otherwise break encapsulation, but the return is const
 	}
+}
+
+PixelNumber FilesMenuItem::GetVisibilityRowOffset(PixelNumber tCurrentOffset, const LcdFont *oFont)
+{
+	// TODO
+
+	return 0;
 }
 
 // End
