@@ -10,6 +10,7 @@
 #include "Heating/Heat.h"
 #include "Platform.h"
 #include "GCodes/GCodes.h"
+#include "Movement/Move.h"
 #include "Display.h"
 
 MenuItem::MenuItem(PixelNumber r, PixelNumber c, FontNumber fn)
@@ -29,8 +30,8 @@ MenuItem::MenuItem(PixelNumber r, PixelNumber c, FontNumber fn)
 
 ButtonMenuItem *ButtonMenuItem::freelist = nullptr;
 
-ButtonMenuItem::ButtonMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, const char* t, const char* cmd)
-	: MenuItem(r, c, fn), text(t), command(cmd)
+ButtonMenuItem::ButtonMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, const char* t, const char* cmd, char const* acFile)
+	: MenuItem(r, c, fn), text(t), command(cmd), m_acFile(acFile)
 {
 }
 
@@ -44,6 +45,21 @@ void ButtonMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight)
 
 	lcd.TextInvert(false);
 	lcd.ClearToMargin();
+}
+
+const char* ButtonMenuItem::Select()
+{
+	const char *szPtr;
+
+	// If we're "menu", just return the name -- but a problem if the name begins with 'G', 'M' or 'T'
+	// If we're "return", send out "return"
+
+	if (0 == strcmp("menu", command))
+		szPtr = m_acFile;
+	else
+		szPtr = command; // includes "return"
+
+	return szPtr;
 }
 
 ValueMenuItem::ValueMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, PixelNumber w, unsigned int v, unsigned int d)
@@ -93,6 +109,50 @@ void ValueMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight)
 				currentValue = reprap.GetGCodes().GetSpeedFactor() * 100.0;
 				break;
 
+			case 10: // X
+				{
+					float m[MaxAxes];
+					reprap.GetMove().GetCurrentMachinePosition(m, false);
+					currentValue = m[X_AXIS];
+				}
+				break;
+
+			case 11: // Y
+				{
+					float m[MaxAxes];
+					reprap.GetMove().GetCurrentMachinePosition(m, false);
+					currentValue = m[Y_AXIS];
+				}
+				break;
+
+			case 12: // Z
+				{
+					float m[MaxAxes];
+					reprap.GetMove().GetCurrentMachinePosition(m, false);
+					currentValue = m[Z_AXIS];
+				}
+				break;
+
+			case 13: // E0
+				currentValue = reprap.GetGCodes().GetRawExtruderTotalByDrive(0);
+				break;
+
+			case 14: // E1
+				currentValue = reprap.GetGCodes().GetRawExtruderTotalByDrive(1);
+				break;
+
+			case 15: // E2
+				currentValue = reprap.GetGCodes().GetRawExtruderTotalByDrive(2);
+				break;
+
+			case 16: // E3
+				currentValue = reprap.GetGCodes().GetRawExtruderTotalByDrive(3);
+				break;
+
+			case 20:
+				currentValue = reprap.GetCurrentToolNumber();
+				break;
+
 			default:
 				error = true;
 			}
@@ -121,65 +181,121 @@ const char* ValueMenuItem::Select()
 	return nullptr;
 }
 
-bool ValueMenuItem::Adjust(int clicks)
+bool ValueMenuItem::Adjust_SelectHelper()
 {
-	if (clicks == 0)	// if button has been pressed
+	const unsigned int itemNumber = valIndex % 100;
+
+	bool error = false;
+	switch (valIndex/100)
 	{
-		bool error = false;
-		const unsigned int itemNumber = valIndex % 100;
-		switch (valIndex/100)
+	case 1:		// heater active temperature
+		if (0 == currentValue) // 0 is off, otherwise ensure the tool is made active at the same time
 		{
-		case 1:		// heater active temperature
 			reprap.GetGCodes().SetItemActiveTemperature(itemNumber, currentValue);
-			break;
-
-		case 2:		// heater standby temperature
-			reprap.GetGCodes().SetItemStandbyTemperature(itemNumber, currentValue);
-			break;
-
-		case 3:		// fan %
-			if (itemNumber == 99)
+		}
+		else
+		{
+			unsigned int uToolNumber = itemNumber;
+			if (79 == itemNumber)
 			{
-				reprap.GetGCodes().SetMappedFanSpeed(currentValue * 0.01);
+				uToolNumber = reprap.GetCurrentToolNumber();
 			}
-			else
-			{
-				reprap.GetPlatform().SetFanValue(itemNumber, currentValue * 0.01);
-			}
+
+			reprap.SelectTool(uToolNumber, false);
+			reprap.GetGCodes().SetItemActiveTemperature(uToolNumber, currentValue);
+		}
+		break;
+
+	case 2:		// heater standby temperature
+		reprap.GetGCodes().SetItemStandbyTemperature(itemNumber, currentValue);
+		break;
+
+	case 3:		// fan %
+		if (itemNumber == 99)
+		{
+			reprap.GetGCodes().SetMappedFanSpeed(currentValue * 0.01);
+		}
+		else
+		{
+			reprap.GetPlatform().SetFanValue(itemNumber, currentValue * 0.01);
+		}
+		break;
+
+	case 4:		// extruder %
+		reprap.GetGCodes().SetExtrusionFactor(itemNumber, currentValue * 0.01);
+		break;
+
+	case 5:		// misc
+		switch (itemNumber)
+		{
+		case 0:
+			reprap.GetGCodes().SetSpeedFactor(currentValue * 0.01);
 			break;
 
-		case 4:		// extruder %
-			reprap.GetGCodes().SetExtrusionFactor(itemNumber, currentValue * 0.01);
-			break;
-
-		case 5:		// misc
-			switch (itemNumber)
-			{
-			case 0:
-				reprap.GetGCodes().SetSpeedFactor(currentValue * 0.01);
-				break;
-
-			default:
-				error = true;
-				break;
-			}
+		case 20:
+			reprap.SelectTool(currentValue, false);
 			break;
 
 		default:
 			error = true;
 			break;
 		}
+		break;
 
-		if (error)
-		{
-			reprap.GetDisplay().ErrorBeep();
-		}
-		adjusting = false;
-		return true;
+	default:
+		error = true;
+		break;
 	}
 
-	currentValue += (float)clicks;			// currently we always adjust by 1
+	if (error)
+	{
+		reprap.GetDisplay().ErrorBeep();
+	}
+	adjusting = false;
+
+	return true;
+}
+
+bool ValueMenuItem::Adjust_AlterHelper(int clicks)
+{
+	const unsigned int itemNumber = valIndex % 100;
+
+	switch (valIndex/100)
+	{
+	case 5:
+		switch (itemNumber)
+		{
+		case 0:
+			currentValue = constrain<float>(currentValue + (float)clicks, 10, 500);
+			break;
+
+		case 20:
+			currentValue = constrain<int>(currentValue + clicks, -1, 255);
+			break;
+
+		default:
+			// error = true;
+			break;
+		}
+		break;
+
+	default:
+		currentValue += (float)clicks;			// currently we always adjust by 1
+		break;
+	}
+
 	return false;
+}
+
+bool ValueMenuItem::Adjust(int clicks)
+{
+	if (clicks == 0)	// if button has been pressed
+	{
+		return Adjust_SelectHelper();
+	}
+
+	// Wheel has scrolled: alter value
+	return Adjust_AlterHelper(clicks);
 }
 
 FilesMenuItem *FilesMenuItem::freelist = nullptr;

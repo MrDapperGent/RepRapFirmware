@@ -62,15 +62,16 @@ public:
 	void* operator new(size_t sz) { return Allocate<ButtonMenuItem>(); }
 	void operator delete(void* p) { Release<ButtonMenuItem>(p); }
 
-	ButtonMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, const char *t, const char *cmd);
+	ButtonMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, const char *t, const char *cmd, const char *acFile);
 	void Draw(Lcd7920& lcd, PixelNumber maxWidth, bool highlight) override;
-	const char* Select() override { return command; }
+	const char* Select() override;
 
 private:
 	static ButtonMenuItem *freelist;
 
 	const char *text;
 	const char *command;
+	const char *m_acFile; // used when action ("command") is "menu"
 };
 
 class ValueMenuItem : public MenuItem
@@ -85,7 +86,10 @@ public:
 	bool Adjust(int clicks) override;
 
 private:
-	unsigned int valIndex;
+	bool Adjust_SelectHelper();
+	bool Adjust_AlterHelper(int clicks);
+
+	const unsigned int valIndex; // TODO: strong case for subclassing here -- each subclass can have a desired behavior
 	float currentValue;
 	PixelNumber width;
 	uint8_t decimals;

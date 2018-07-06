@@ -70,18 +70,18 @@ void Menu::Load(const char* filename)
 		}
 		else
 		{
-			currentMargin = numNestedMenus * (OuterMargin + InnerMargin) - InnerMargin;
-			const PixelNumber right = NumCols - currentMargin;
-			const PixelNumber bottom = NumRows - currentMargin;
+			currentMargin = 0;
+			const PixelNumber right = NumCols;
+			const PixelNumber bottom = NumRows;
 			lcd.Clear(currentMargin, currentMargin, bottom, right);
 
 			// Draw the outline
-			lcd.Line(currentMargin, currentMargin, bottom, currentMargin, PixelMode::PixelSet);
-			lcd.Line(currentMargin, currentMargin, currentMargin, right, PixelMode::PixelSet);
-			lcd.Line(bottom, currentMargin, bottom, right, PixelMode::PixelSet);
-			lcd.Line(currentMargin, right, bottom, right, PixelMode::PixelSet);
+			// lcd.Line(currentMargin, currentMargin, bottom, currentMargin, PixelMode::PixelSet);
+			// lcd.Line(currentMargin, currentMargin, currentMargin, right, PixelMode::PixelSet);
+			// lcd.Line(bottom, currentMargin, bottom, right, PixelMode::PixelSet);
+			// lcd.Line(currentMargin, right, bottom, right, PixelMode::PixelSet);
 
-			currentMargin += InnerMargin;
+			// currentMargin += InnerMargin;
 		}
 
 		++numNestedMenus;
@@ -91,10 +91,17 @@ void Menu::Load(const char* filename)
 
 void Menu::Pop()
 {
+	// currentMargin = 0;
+	lcd.Clear(0, 0, NumRows, NumCols);
+	--numNestedMenus;
+	Reload();
 }
 
 void Menu::LoadError(const char *msg, unsigned int line)
 {
+	// Remove selectable items that may obscure view of the error message
+	ResetCache();
+
 	lcd.Clear(currentMargin, currentMargin, NumRows - currentMargin, NumCols - currentMargin);
 	lcd.SetFont(fonts[0]);
 	lcd.print("Error loading menu\nFile ");
@@ -113,11 +120,11 @@ void Menu::LoadError(const char *msg, unsigned int line)
 	}
 }
 
-// Parse a command returning the error message, or nullptr if there was no error.
+// Parse a line in a menu layout file returning any error message, or nullptr if there was no error.
 // If numCommandArguments is nonzero on entry, don't execute the command and leave numCommandArguments unchanged.
 // if numCommandArguments is zero on entry, execute the command, and set numCommandArguments to the number of following argument lines.
 // Leading whitespace has already been skipped.
-const char *Menu::ParseCommand(char *commandWord)
+const char *Menu::ParseMenuLine(char *commandWord)
 {
 	// Check for blank or comment line
 	if (*commandWord == ';' || *commandWord == 0)
@@ -210,7 +217,7 @@ const char *Menu::ParseCommand(char *commandWord)
 
 	lcd.SetCursor(row + currentMargin, column + currentMargin);
 
-	// Look up and execute the command
+	// Create an object resident in memory corresponding to the menu layout file's description
 	if (StringEquals(commandWord, "text"))
 	{
 		lcd.SetFont(fonts[fontNumber]);
@@ -226,7 +233,8 @@ const char *Menu::ParseCommand(char *commandWord)
 	{
 		const char * const textString = AppendString(text);
 		const char * const actionString = AppendString(action);
-		AddItem(new ButtonMenuItem(row, column, fontNumber, textString, actionString), true);
+		const char *const c_acFileString = AppendString(fname);
+		AddItem(new ButtonMenuItem(row, column, fontNumber, textString, actionString, c_acFileString), true);
 		// Print the button as well so that we can update the row and column
 		lcd.SetFont(fonts[fontNumber]);
 		lcd.print(text);
@@ -259,7 +267,7 @@ const char *Menu::ParseCommand(char *commandWord)
 	return nullptr;
 }
 
-void Menu::Reload()
+void Menu::ResetCache()
 {
 	// Delete the existing items
 	while (selectableItems != nullptr)
@@ -276,6 +284,13 @@ void Menu::Reload()
 	}
 	numSelectableItems = 0;
 	m_nHighlightedItem = 0;
+
+	return;
+}
+
+void Menu::Reload()
+{
+	ResetCache();
 
 	lcd.SetRightMargin(NumCols - currentMargin);
 	const char * const fname = filenames[numNestedMenus - 1].c_str();
@@ -294,7 +309,7 @@ void Menu::Reload()
 		row = 0;
 		column = 0;
 		fontNumber = 0;
-		commandBufferIndex = 0;
+		commandBufferIndex = 0; // Free the string buffer, which contains layout elements from an old menu
 		for (unsigned int line = 1; ; ++line)
 		{
 			char buffer[MaxMenuLineLength];
@@ -303,8 +318,8 @@ void Menu::Reload()
 				break;
 			}
 
-			char * const commandLine = SkipWhitespace(buffer);
-			const char * const errMsg = ParseCommand(commandLine);
+			char * const pcMenuLine = SkipWhitespace(buffer);
+			const char * const errMsg = ParseMenuLine(pcMenuLine);
 			if (errMsg != nullptr)
 			{
 				LoadError(errMsg, line);
@@ -334,8 +349,9 @@ void Menu::AddItem(MenuItem *item, bool isSelectable)
 }
 
 // Append a string to the string buffer and return its index
-const char *Menu::AppendString(const char *s)
+const char *const Menu::AppendString(const char *s)
 {
+	// TODO: hold a fixed reference to '\0' -- if any strings passed in are empty, return this reference
 	const size_t oldIndex = commandBufferIndex;
 	if (commandBufferIndex < sizeof(commandBuffer))
 	{
@@ -398,7 +414,7 @@ void Menu::EncoderAction(int action)
 				oNewItem->Enter(action > 0);
 			}
 		}
-		else
+		else // scroll wheel clicked without an item in the selected state
 		{
 			MenuItem *const item = FindHighlightedItem();
 			if (item != nullptr)
@@ -411,7 +427,7 @@ void Menu::EncoderAction(int action)
 						const bool success = reprap.GetGCodes().ProcessCommandFromLcd(cmd);
 						if (success)
 						{
-							reprap.GetDisplay().SuccessBeep();
+							// reprap.GetDisplay().SuccessBeep();
 						}
 						else
 						{
@@ -420,6 +436,10 @@ void Menu::EncoderAction(int action)
 					}
 					else
 					{
+						if (0 == strcmp("return", cmd))
+							Pop(); // up one level
+						else
+							Load(cmd);
 						//TODO run the command (popup, menu, return)
 					}
 				}
