@@ -30,6 +30,7 @@ private:
 	const char *const AppendString(const char *s);
 	void LoadImage(const char *fname);
 	MenuItem *FindHighlightedItem() const;
+	bool ShowBasedOnPrinterState(const char *const acDescription);
 
 	static const char *SkipWhitespace(const char *s);
 	static char *SkipWhitespace(char *s);
@@ -37,7 +38,7 @@ private:
 	static const size_t CommandBufferSize = 512;
 	static const size_t MaxMenuLineLength = 80; // adjusts behavior in Reload()
 	static const size_t MaxMenuFilenameLength = 18;
-	static const size_t MaxMenuNesting = 5;						// maximum number of nested menus
+	static const size_t MaxMenuNesting = 8;						// maximum number of nested menus
 	static const PixelNumber InnerMargin = 2;					// how many pixels we keep clear inside the border
 	static const PixelNumber OuterMargin = 8 + InnerMargin;		// how many pixels of the previous menu we leave on each side
 	static const PixelNumber DefaultNumberWidth = 20;			// default numeric field width
@@ -45,6 +46,9 @@ private:
 	Lcd7920& lcd;
 	const LcdFont * const *fonts;
 	const size_t numFonts;
+
+	bool m_bTimeoutEnabled;
+	uint32_t m_uLastActionTime;
 
 	MenuItem *selectableItems;									// selectable items at the innermost level
 	MenuItem *unSelectableItems;								// unselectable items at the innermost level

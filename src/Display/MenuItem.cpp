@@ -121,7 +121,7 @@ ValueMenuItem::ValueMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, PixelN
 
 void ValueMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight, PixelNumber tOffset)
 {
-	lcd.SetCursor(row, column);
+	lcd.SetCursor(row - tOffset, column);
 	lcd.SetRightMargin(min<PixelNumber>(column + width, rightMargin));
 	lcd.TextInvert(highlight);
 
@@ -132,15 +132,15 @@ void ValueMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight, 
 		switch (valIndex/100)
 		{
 		case 0:		// heater current temperature
-			currentValue = reprap.GetGCodes().GetItemCurrentTemperature(itemNumber);
+			currentValue = max<float>(reprap.GetGCodes().GetItemCurrentTemperature(itemNumber), 0.0f);
 			break;
 
 		case 1:		// heater active temperature
-			currentValue = reprap.GetGCodes().GetItemActiveTemperature(itemNumber);
+			currentValue = max<float>(reprap.GetGCodes().GetItemActiveTemperature(itemNumber), 0.0f);
 			break;
 
 		case 2:		// heater standby temperature
-			currentValue = reprap.GetGCodes().GetItemStandbyTemperature(itemNumber);
+			currentValue = max<float>(reprap.GetGCodes().GetItemStandbyTemperature(itemNumber), 0.0f);
 			break;
 
 		case 3:		// fan %
@@ -247,12 +247,7 @@ bool ValueMenuItem::Adjust_SelectHelper()
 	bool error = false;
 	switch (valIndex/100)
 	{
-	case 1:		// heater active temperature
-		if (0 == currentValue) // 0 is off, otherwise ensure the tool is made active at the same time
-		{
-			reprap.GetGCodes().SetItemActiveTemperature(itemNumber, currentValue);
-		}
-		else
+	case 1: // heater active temperature
 		{
 			unsigned int uToolNumber = itemNumber;
 			if (79 == itemNumber)
@@ -260,16 +255,23 @@ bool ValueMenuItem::Adjust_SelectHelper()
 				uToolNumber = reprap.GetCurrentToolNumber();
 			}
 
-			reprap.SelectTool(uToolNumber, false);
-			reprap.GetGCodes().SetItemActiveTemperature(uToolNumber, currentValue);
+			if (1 > currentValue) // 0 is off
+			{
+				reprap.GetGCodes().SetItemActiveTemperature(uToolNumber, -273.15f);
+			}
+			else // otherwise ensure the tool is made active at the same time (really only matters for 79)
+			{
+				reprap.SelectTool(uToolNumber, false);
+				reprap.GetGCodes().SetItemActiveTemperature(uToolNumber, currentValue);
+			}
 		}
 		break;
 
-	case 2:		// heater standby temperature
-		reprap.GetGCodes().SetItemStandbyTemperature(itemNumber, currentValue);
+	case 2: // heater standby temperature
+		reprap.GetGCodes().SetItemStandbyTemperature(itemNumber, (1 > currentValue) ? -273.15f : currentValue);
 		break;
 
-	case 3:		// fan %
+	case 3: // fan %
 		if (itemNumber == 99)
 		{
 			reprap.GetGCodes().SetMappedFanSpeed(currentValue * 0.01);
@@ -280,11 +282,11 @@ bool ValueMenuItem::Adjust_SelectHelper()
 		}
 		break;
 
-	case 4:		// extruder %
+	case 4: // extruder %
 		reprap.GetGCodes().SetExtrusionFactor(itemNumber, currentValue * 0.01);
 		break;
 
-	case 5:		// misc
+	case 5: // misc.
 		switch (itemNumber)
 		{
 		case 0:
@@ -321,14 +323,75 @@ bool ValueMenuItem::Adjust_AlterHelper(int clicks)
 
 	switch (valIndex/100)
 	{
-	case 5:
+	case 1:	// heater active temperature
+		if (itemNumber < 80) // Tool heaters
+		{
+			// If we're decreasing, make any value smaller than 95 go to 0
+			// If we're increasing, make any value between 0 and 95 jump directly to 95
+			// Also cap the maximum (currently 270)
+			if (0 > clicks) // decrementing
+			{
+				currentValue += clicks;
+
+				if (95 > (int)currentValue)
+					currentValue = 0;
+			}
+			else // incrementing
+			{
+				if (0 == currentValue)
+				{
+					currentValue = (95 - 1);
+					// --clicks;
+				}
+
+				currentValue = min<int>(currentValue + clicks, 270); // TODO remove ugly hardcode
+			}
+		}
+		else
+		{
+			currentValue += clicks;
+		}
+		break;
+
+	case 2:	// heater standby temperature
+		if (itemNumber < 80) // Tool heaters
+		{
+			if (0 > clicks) // decrementing
+			{
+				currentValue += clicks;
+
+				if (95 > (int)currentValue)
+					currentValue = 0;
+			}
+			else // incrementing
+			{
+				if (0 == currentValue)
+				{
+					currentValue = (95 - 1);
+					// --clicks;
+				}
+
+				currentValue = min<int>(currentValue + clicks, 270); // TODO remove ugly hardcode
+			}
+		}
+		else
+		{
+			currentValue += clicks;
+		}
+		break;
+
+	case 3: // fan %
+		currentValue = constrain<int>(currentValue + clicks, 0, 100);
+		break;
+
+	case 5: // misc.
 		switch (itemNumber)
 		{
-		case 0:
+		case 0: // 500 Feed Rate
 			currentValue = constrain<float>(currentValue + (float)clicks, 10, 500);
 			break;
 
-		case 20:
+		case 20: // 520 Tool Selection
 			currentValue = constrain<int>(currentValue + clicks, -1, 255);
 			break;
 
@@ -339,7 +402,7 @@ bool ValueMenuItem::Adjust_AlterHelper(int clicks)
 		break;
 
 	default:
-		currentValue += (float)clicks;			// currently we always adjust by 1
+		currentValue += (float)clicks;
 		break;
 	}
 
@@ -388,7 +451,7 @@ void FilesMenuItem::EnterDirectory(const char *acDir)
 
 void FilesMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight, PixelNumber tOffset)
 {
-	lcd.SetCursor(row, column);
+	lcd.SetCursor(row, column); // TODO: consider tOffset
 	lcd.SetRightMargin(rightMargin);
 
 	// We are writing text to line numbers 0, 1, 2 ... m_uDisplayLines - 1
