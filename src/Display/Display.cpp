@@ -63,9 +63,10 @@ void Display::Spin(const bool bIncludeLCDUpdate)
 		lcd.FlushSome();
 	}
 
-	if (beepActive && millis() > m_uWhenBeepShouldEnd)
+	if (beepActive && millis() - whenBeepStarted > beepLength)
 	{
 		IoPort::WriteAnalog(LcdBeepPin, 0.0, 0);
+		beepActive = false;
 	}
 }
 
@@ -88,7 +89,8 @@ void Display::Exit()
 //   will be heard by the user
 void Display::Beep(unsigned int frequency, unsigned int milliseconds)
 {
-	m_uWhenBeepShouldEnd = millis() + milliseconds;
+	whenBeepStarted = millis();
+	beepLength = milliseconds;
 	beepActive = true;
 	IoPort::WriteAnalog(LcdBeepPin, 0.5, (uint16_t)frequency);
 }
