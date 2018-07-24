@@ -34,7 +34,8 @@ private:
 	RotaryEncoder encoder;
 	Menu menu;
 
-	uint32_t m_uWhenBeepShouldEnd;
+	uint32_t whenBeepStarted;
+	uint32_t beepLength;
 
 	bool present;
 	bool beepActive;

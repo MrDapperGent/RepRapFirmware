@@ -30,7 +30,12 @@ private:
 	const char *const AppendString(const char *s);
 	void LoadImage(const char *fname);
 	MenuItem *FindHighlightedItem() const;
-	bool ShowBasedOnPrinterState(const char *const acDescription);
+	bool ShowBasedOnPrinterState(const char *const acText, const char *const acDescription);
+
+	void EncoderAction_EnterItemHelper();
+	void EncoderAction_AdjustItemHelper(int action);
+	void EncoderAction_ExitItemHelper(int action);
+	void EncoderAction_ExecuteHelper(const char *const cmd);
 
 	static const char *SkipWhitespace(const char *s);
 	static char *SkipWhitespace(char *s);

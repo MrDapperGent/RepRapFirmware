@@ -5026,7 +5026,16 @@ void GCodes::SetItemActiveTemperature(unsigned int itemNumber, float temp)
 	// }
 	else
 	{
-		reprap.GetHeat().SetActiveTemperature(GetHeaterNumber(itemNumber), temp);
+		if (1.0f > temp)
+		{
+			reprap.GetHeat().SetActiveTemperature(GetHeaterNumber(itemNumber), -273.15f);
+			reprap.GetHeat().SwitchOff(GetHeaterNumber(itemNumber));
+		}
+		else
+		{
+			reprap.GetHeat().SetActiveTemperature(GetHeaterNumber(itemNumber), temp);
+			reprap.GetHeat().Activate(GetHeaterNumber(itemNumber));
+		}
 	}
 }
 
