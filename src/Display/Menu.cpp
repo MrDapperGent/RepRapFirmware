@@ -53,7 +53,9 @@
 
 Menu::Menu(Lcd7920& refLcd, const LcdFont * const fnts[], size_t nFonts)
 	: lcd(refLcd), fonts(fnts), numFonts(nFonts),
-	  selectableItems(nullptr), unSelectableItems(nullptr), numNestedMenus(0), numSelectableItems(0), m_nHighlightedItem(0), itemIsSelected(false)
+	  m_bTimeoutEnabled(false), m_uLastActionTime(millis()),
+	  selectableItems(nullptr), unSelectableItems(nullptr), numNestedMenus(0), numSelectableItems(0), m_nHighlightedItem(0), itemIsSelected(false),
+	  m_tRowOffset(0)
 {
 }
 
@@ -63,25 +65,26 @@ void Menu::Load(const char* filename)
 	{
 		filenames[numNestedMenus].copy(filename);
 
+		m_tRowOffset = 0;
 		if (numNestedMenus == 0)
 		{
 			currentMargin = 0;
-			lcd.Clear(0, 0, NumRows, NumCols);
+			lcd.Clear();
 		}
 		else
 		{
-			currentMargin = numNestedMenus * (OuterMargin + InnerMargin) - InnerMargin;
-			const PixelNumber right = NumCols - currentMargin;
-			const PixelNumber bottom = NumRows - currentMargin;
+			currentMargin = 0;
+			const PixelNumber right = NumCols;
+			const PixelNumber bottom = NumRows;
 			lcd.Clear(currentMargin, currentMargin, bottom, right);
 
 			// Draw the outline
-			lcd.Line(currentMargin, currentMargin, bottom, currentMargin, PixelMode::PixelSet);
-			lcd.Line(currentMargin, currentMargin, currentMargin, right, PixelMode::PixelSet);
-			lcd.Line(bottom, currentMargin, bottom, right, PixelMode::PixelSet);
-			lcd.Line(currentMargin, right, bottom, right, PixelMode::PixelSet);
+			// lcd.Line(currentMargin, currentMargin, bottom, currentMargin, PixelMode::PixelSet);
+			// lcd.Line(currentMargin, currentMargin, currentMargin, right, PixelMode::PixelSet);
+			// lcd.Line(bottom, currentMargin, bottom, right, PixelMode::PixelSet);
+			// lcd.Line(currentMargin, right, bottom, right, PixelMode::PixelSet);
 
-			currentMargin += InnerMargin;
+			// currentMargin += InnerMargin;
 		}
 
 		++numNestedMenus;
@@ -91,10 +94,18 @@ void Menu::Load(const char* filename)
 
 void Menu::Pop()
 {
+	// currentMargin = 0;
+	lcd.Clear();
+	m_tRowOffset = 0;
+	--numNestedMenus;
+	Reload();
 }
 
 void Menu::LoadError(const char *msg, unsigned int line)
 {
+	// Remove selectable items that may obscure view of the error message
+	ResetCache();
+
 	lcd.Clear(currentMargin, currentMargin, NumRows - currentMargin, NumCols - currentMargin);
 	lcd.SetFont(fonts[0]);
 	lcd.print("Error loading menu\nFile ");
@@ -113,11 +124,11 @@ void Menu::LoadError(const char *msg, unsigned int line)
 	}
 }
 
-// Parse a command returning the error message, or nullptr if there was no error.
+// Parse a line in a menu layout file returning any error message, or nullptr if there was no error.
 // If numCommandArguments is nonzero on entry, don't execute the command and leave numCommandArguments unchanged.
 // if numCommandArguments is zero on entry, execute the command, and set numCommandArguments to the number of following argument lines.
 // Leading whitespace has already been skipped.
-const char *Menu::ParseCommand(char *commandWord)
+const char *Menu::ParseMenuLine(char *commandWord)
 {
 	// Check for blank or comment line
 	if (*commandWord == ';' || *commandWord == 0)
@@ -210,9 +221,12 @@ const char *Menu::ParseCommand(char *commandWord)
 
 	lcd.SetCursor(row + currentMargin, column + currentMargin);
 
-	// Look up and execute the command
+	// Create an object resident in memory corresponding to the menu layout file's description
 	if (StringEquals(commandWord, "text"))
 	{
+		const char *const acText = AppendString(text);
+		AddItem(new TextMenuItem(row, column, fontNumber, acText), false);
+
 		lcd.SetFont(fonts[fontNumber]);
 		lcd.print(text);
 		row = lcd.GetRow() - currentMargin;
@@ -224,14 +238,18 @@ const char *Menu::ParseCommand(char *commandWord)
 	}
 	else if (StringEquals(commandWord, "button"))
 	{
-		const char * const textString = AppendString(text);
-		const char * const actionString = AppendString(action);
-		AddItem(new ButtonMenuItem(row, column, fontNumber, textString, actionString), true);
-		// Print the button as well so that we can update the row and column
-		lcd.SetFont(fonts[fontNumber]);
-		lcd.print(text);
-		row = lcd.GetRow() - currentMargin;
-		column = lcd.GetColumn() - currentMargin;
+		if (ShowBasedOnPrinterState(fname))
+		{
+			const char * const textString = AppendString(text);
+			const char * const actionString = AppendString(action);
+			const char *const c_acFileString = AppendString(fname);
+			AddItem(new ButtonMenuItem(row, column, fontNumber, textString, actionString, c_acFileString), true);
+			// Print the button as well so that we can update the row and column
+			lcd.SetFont(fonts[fontNumber]);
+			lcd.print(text);
+			row = lcd.GetRow() - currentMargin;
+			column = lcd.GetColumn() - currentMargin;
+		}
 	}
 	else if (StringEquals(commandWord, "value"))
 	{
@@ -259,7 +277,7 @@ const char *Menu::ParseCommand(char *commandWord)
 	return nullptr;
 }
 
-void Menu::Reload()
+void Menu::ResetCache()
 {
 	// Delete the existing items
 	while (selectableItems != nullptr)
@@ -276,6 +294,13 @@ void Menu::Reload()
 	}
 	numSelectableItems = 0;
 	m_nHighlightedItem = 0;
+
+	return;
+}
+
+void Menu::Reload()
+{
+	ResetCache();
 
 	lcd.SetRightMargin(NumCols - currentMargin);
 	const char * const fname = filenames[numNestedMenus - 1].c_str();
@@ -294,7 +319,7 @@ void Menu::Reload()
 		row = 0;
 		column = 0;
 		fontNumber = 0;
-		commandBufferIndex = 0;
+		commandBufferIndex = 0; // Free the string buffer, which contains layout elements from an old menu
 		for (unsigned int line = 1; ; ++line)
 		{
 			char buffer[MaxMenuLineLength];
@@ -303,8 +328,8 @@ void Menu::Reload()
 				break;
 			}
 
-			char * const commandLine = SkipWhitespace(buffer);
-			const char * const errMsg = ParseCommand(commandLine);
+			char * const pcMenuLine = SkipWhitespace(buffer);
+			const char * const errMsg = ParseMenuLine(pcMenuLine);
 			if (errMsg != nullptr)
 			{
 				LoadError(errMsg, line);
@@ -320,7 +345,7 @@ void Menu::Reload()
 		}
 #endif
 		file->Close();
-		Refresh();
+		// Refresh();
 	}
 }
 
@@ -334,8 +359,9 @@ void Menu::AddItem(MenuItem *item, bool isSelectable)
 }
 
 // Append a string to the string buffer and return its index
-const char *Menu::AppendString(const char *s)
+const char *const Menu::AppendString(const char *s)
 {
+	// TODO: hold a fixed reference to '\0' -- if any strings passed in are empty, return this reference
 	const size_t oldIndex = commandBufferIndex;
 	if (commandBufferIndex < sizeof(commandBuffer))
 	{
@@ -347,6 +373,7 @@ const char *Menu::AppendString(const char *s)
 
 // Perform the specified encoder action
 // If 'action' is zero then the button was pressed, else 'action' is the number of clicks (+ve for clockwise)
+// EncoderAction is what's called in response to all wheel/button actions; a convenient place to set new timeout values
 void Menu::EncoderAction(int action)
 {
 	if (numSelectableItems != 0)
@@ -396,9 +423,17 @@ void Menu::EncoderAction(int action)
 				// Let the newly selected MenuItem handle any selection setup
 				MenuItem *const oNewItem = FindHighlightedItem();
 				oNewItem->Enter(action > 0);
+
+				PixelNumber tLastOffset = m_tRowOffset;
+				m_tRowOffset = oNewItem->GetVisibilityRowOffset(tLastOffset, fonts[oNewItem->GetFontNumber()]);
+
+				if (m_tRowOffset != tLastOffset)
+				{
+					lcd.Clear();
+				}
 			}
 		}
-		else
+		else // scroll wheel clicked without an item in the selected state
 		{
 			MenuItem *const item = FindHighlightedItem();
 			if (item != nullptr)
@@ -411,7 +446,7 @@ void Menu::EncoderAction(int action)
 						const bool success = reprap.GetGCodes().ProcessCommandFromLcd(cmd);
 						if (success)
 						{
-							reprap.GetDisplay().SuccessBeep();
+							// reprap.GetDisplay().SuccessBeep();
 						}
 						else
 						{
@@ -420,6 +455,10 @@ void Menu::EncoderAction(int action)
 					}
 					else
 					{
+						if (0 == strcmp("return", cmd))
+							Pop(); // up one level
+						else
+							Load(cmd);
 						//TODO run the command (popup, menu, return)
 					}
 				}
@@ -430,6 +469,9 @@ void Menu::EncoderAction(int action)
 			}
 		}
 	}
+
+	m_bTimeoutEnabled = true;
+	m_uLastActionTime = millis();
 }
 
 /*static*/ const char *Menu::SkipWhitespace(const char *s)
@@ -456,23 +498,36 @@ void Menu::LoadImage(const char *fname)
 	lcd.print("<image>");
 }
 
+// Refresh is called every Spin() of the Display under most circumstances; an appropriate place to check if timeout action needs to be taken
 void Menu::Refresh()
 {
-	const PixelNumber rightMargin = NumCols - currentMargin;
-	int nItemBeingDrawnIndex = 0;
-
-	for (MenuItem *item = selectableItems; item != nullptr; item = item->GetNext())
+	if (m_bTimeoutEnabled && (millis() > m_uLastActionTime + 20000)) // 20 seconds after TODO consider rollover
 	{
-		lcd.SetFont(fonts[item->GetFontNumber()]);
-		item->Draw(lcd, rightMargin, (nItemBeingDrawnIndex == m_nHighlightedItem));
-		++nItemBeingDrawnIndex;
+		// Go to the top menu (just discard information)
+		numNestedMenus = 0;
+		Load("main");
+
+		m_bTimeoutEnabled = false;
+		// m_uLastActionTime = millis();
 	}
-
-	for (MenuItem *item = unSelectableItems; item != nullptr; item = item->GetNext())
+	else
 	{
-		lcd.SetFont(fonts[item->GetFontNumber()]);
-		item->Draw(lcd, rightMargin, false);
-		// ++nItemBeingDrawnIndex; // unused
+		const PixelNumber rightMargin = NumCols - currentMargin;
+		int nItemBeingDrawnIndex = 0;
+
+		for (MenuItem *item = selectableItems; item != nullptr; item = item->GetNext())
+		{
+			lcd.SetFont(fonts[item->GetFontNumber()]);
+			item->Draw(lcd, rightMargin, (nItemBeingDrawnIndex == m_nHighlightedItem), m_tRowOffset);
+			++nItemBeingDrawnIndex;
+		}
+
+		for (MenuItem *item = unSelectableItems; item != nullptr; item = item->GetNext())
+		{
+			lcd.SetFont(fonts[item->GetFontNumber()]);
+			item->Draw(lcd, rightMargin, false, m_tRowOffset);
+			// ++nItemBeingDrawnIndex; // unused
+		}
 	}
 }
 
@@ -484,6 +539,12 @@ MenuItem *Menu::FindHighlightedItem() const
 		p = p->GetNext();
 	}
 	return p;
+}
+
+bool Menu::ShowBasedOnPrinterState(const char *const acDescription)
+{
+	return !((reprap.GetGCodes().IsReallyPrinting() && (0 == strcmp("s_prepare", acDescription))) ||
+	  (!reprap.GetGCodes().IsReallyPrinting() && (0 == strcmp("s_tune", acDescription))));
 }
 
 // End

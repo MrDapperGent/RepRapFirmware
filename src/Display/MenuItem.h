@@ -20,7 +20,7 @@ public:
 	typedef uint8_t FontNumber;
 
 	// Draw this element on the LCD respecting 'maxWidth' and 'highlight'
-	virtual void Draw(Lcd7920& lcd, PixelNumber maxWidth, bool highlight) = 0;
+	virtual void Draw(Lcd7920& lcd, PixelNumber maxWidth, bool highlight, PixelNumber tOffset) = 0;
 
 	// Select this element with a push of the encoder.
 	// If it returns nullptr then go into adjustment mode.
@@ -44,6 +44,8 @@ public:
 	MenuItem *GetNext() const { return next; }
 	FontNumber GetFontNumber() const { return fontNumber; }
 
+	virtual PixelNumber GetVisibilityRowOffset(PixelNumber tCurrentOffset, const LcdFont *oFont) { return 0; }
+
 	static void AppendToList(MenuItem **root, MenuItem *item);
 
 protected:
@@ -56,21 +58,42 @@ private:
 	MenuItem *next;
 };
 
+// TODO: this could be removed if we disallow text usage on scrolling screens
+class TextMenuItem : public MenuItem
+{
+public:
+	void* operator new(size_t sz) { return Allocate<TextMenuItem>(); }
+	void operator delete(void* p) { Release<TextMenuItem>(p); }
+
+	TextMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, const char *t);
+	void Draw(Lcd7920& lcd, PixelNumber maxWidth, bool highlight, PixelNumber tOffset) override;
+
+	const char* Select() override;
+
+private:
+	static TextMenuItem *freelist;
+
+	const char *text;
+};
+
 class ButtonMenuItem : public MenuItem
 {
 public:
 	void* operator new(size_t sz) { return Allocate<ButtonMenuItem>(); }
 	void operator delete(void* p) { Release<ButtonMenuItem>(p); }
 
-	ButtonMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, const char *t, const char *cmd);
-	void Draw(Lcd7920& lcd, PixelNumber maxWidth, bool highlight) override;
-	const char* Select() override { return command; }
+	ButtonMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, const char *t, const char *cmd, const char *acFile);
+	void Draw(Lcd7920& lcd, PixelNumber maxWidth, bool highlight, PixelNumber tOffset) override;
+	const char* Select() override;
+
+	PixelNumber GetVisibilityRowOffset(PixelNumber tCurrentOffset, const LcdFont *oFont) override;
 
 private:
 	static ButtonMenuItem *freelist;
 
 	const char *text;
 	const char *command;
+	const char *m_acFile; // used when action ("command") is "menu"
 };
 
 class ValueMenuItem : public MenuItem
@@ -80,12 +103,17 @@ public:
 	void operator delete(void* p) { Release<ValueMenuItem>(p); }
 
 	ValueMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, PixelNumber w, unsigned int v, unsigned int d);
-	void Draw(Lcd7920& lcd, PixelNumber maxWidth, bool highlight) override;
+	void Draw(Lcd7920& lcd, PixelNumber maxWidth, bool highlight, PixelNumber tOffset) override;
 	const char* Select() override;
 	bool Adjust(int clicks) override;
 
+	PixelNumber GetVisibilityRowOffset(PixelNumber tCurrentOffset, const LcdFont *oFont) override;
+
 private:
-	unsigned int valIndex;
+	bool Adjust_SelectHelper();
+	bool Adjust_AlterHelper(int clicks);
+
+	const unsigned int valIndex; // TODO: strong case for subclassing here -- each subclass can have a desired behavior
 	float currentValue;
 	PixelNumber width;
 	uint8_t decimals;
@@ -99,10 +127,12 @@ public:
 	void operator delete(void* p) { Release<FilesMenuItem>(p); }
 
 	FilesMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, const char *cmd, const char *dir, unsigned int nf, unsigned int uFontHeight);
-	void Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight) override;
+	void Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight, PixelNumber tOffset) override;
 	void Enter(bool bForwardDirection) override;
 	int Advance(int nCounts) override;
 	const char* Select() override;
+
+	PixelNumber GetVisibilityRowOffset(PixelNumber tCurrentOffset, const LcdFont *oFont) override;
 
 	void EnterDirectory(const char *acDir);
 

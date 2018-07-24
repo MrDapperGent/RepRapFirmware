@@ -10,6 +10,7 @@
 #include "Heating/Heat.h"
 #include "Platform.h"
 #include "GCodes/GCodes.h"
+#include "Movement/Move.h"
 #include "Display.h"
 
 MenuItem::MenuItem(PixelNumber r, PixelNumber c, FontNumber fn)
@@ -27,16 +28,45 @@ MenuItem::MenuItem(PixelNumber r, PixelNumber c, FontNumber fn)
 	*root = item;
 }
 
-ButtonMenuItem *ButtonMenuItem::freelist = nullptr;
+TextMenuItem *TextMenuItem::freelist = nullptr;
 
-ButtonMenuItem::ButtonMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, const char* t, const char* cmd)
-	: MenuItem(r, c, fn), text(t), command(cmd)
+TextMenuItem::TextMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, const char* t)
+	: MenuItem(r, c, fn), text(t)
 {
 }
 
-void ButtonMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight)
+void TextMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight, PixelNumber tOffset)
 {
-	lcd.SetCursor(row, column);
+	lcd.SetCursor(row - tOffset, column);
+	// lcd.SetRightMargin(rightMargin);
+
+	lcd.print(text);
+
+	// lcd.SetCursor(row + currentMargin, column + currentMargin);
+	// lcd.SetFont(fonts[fontNumber]);
+	// lcd.print(text);
+	// row = lcd.GetRow() - currentMargin;
+	// column = lcd.GetColumn() - currentMargin;
+
+	// lcd.ClearToMargin();
+}
+
+// TODO need to clean up this design since it isn't meaningful to select a text item
+const char* TextMenuItem::Select()
+{
+	return text;
+}
+
+ButtonMenuItem *ButtonMenuItem::freelist = nullptr;
+
+ButtonMenuItem::ButtonMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, const char* t, const char* cmd, char const* acFile)
+	: MenuItem(r, c, fn), text(t), command(cmd), m_acFile(acFile)
+{
+}
+
+void ButtonMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight, PixelNumber tOffset)
+{
+	lcd.SetCursor(row - tOffset, column);
 	lcd.SetRightMargin(rightMargin);
 
 	lcd.TextInvert(highlight);
@@ -46,14 +76,52 @@ void ButtonMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight)
 	lcd.ClearToMargin();
 }
 
+const char* ButtonMenuItem::Select()
+{
+	const char *szPtr;
+
+	// If we're "menu", just return the name -- but a problem if the name begins with 'G', 'M' or 'T'
+	// If we're "return", send out "return"
+
+	if (0 == strcmp("menu", command))
+		szPtr = m_acFile;
+	else
+		szPtr = command; // includes "return"
+
+	return szPtr;
+}
+
+PixelNumber ButtonMenuItem::GetVisibilityRowOffset(PixelNumber tCurrentOffset, const LcdFont *oFont)
+{
+	PixelNumber tOffsetRequest = tCurrentOffset;
+
+	// Are we off the bottom of the visible window?
+	if (64 + tCurrentOffset <= row + oFont->height + 1)
+	{
+		// tOffsetRequest = tCurrentOffset + row - 3;
+		tOffsetRequest = row - 3;
+	}
+
+	// Should we move back up?
+	if (row < tCurrentOffset + 3)
+	{
+		if (row > 3)
+			tOffsetRequest = row - 3;
+		else
+			tOffsetRequest = 0;
+	}
+
+	return tOffsetRequest;
+}
+
 ValueMenuItem::ValueMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, PixelNumber w, unsigned int v, unsigned int d)
 	: MenuItem(r, c, fn), valIndex(v), currentValue(0.0), width(w), decimals(d), adjusting(false)
 {
 }
 
-void ValueMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight)
+void ValueMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight, PixelNumber tOffset)
 {
-	lcd.SetCursor(row, column);
+	lcd.SetCursor(row - tOffset, column);
 	lcd.SetRightMargin(min<PixelNumber>(column + width, rightMargin));
 	lcd.TextInvert(highlight);
 
@@ -64,15 +132,15 @@ void ValueMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight)
 		switch (valIndex/100)
 		{
 		case 0:		// heater current temperature
-			currentValue = reprap.GetGCodes().GetItemCurrentTemperature(itemNumber);
+			currentValue = max<float>(reprap.GetGCodes().GetItemCurrentTemperature(itemNumber), 0.0f);
 			break;
 
 		case 1:		// heater active temperature
-			currentValue = reprap.GetGCodes().GetItemActiveTemperature(itemNumber);
+			currentValue = max<float>(reprap.GetGCodes().GetItemActiveTemperature(itemNumber), 0.0f);
 			break;
 
 		case 2:		// heater standby temperature
-			currentValue = reprap.GetGCodes().GetItemStandbyTemperature(itemNumber);
+			currentValue = max<float>(reprap.GetGCodes().GetItemStandbyTemperature(itemNumber), 0.0f);
 			break;
 
 		case 3:		// fan %
@@ -91,6 +159,50 @@ void ValueMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight)
 			{
 			case 0:
 				currentValue = reprap.GetGCodes().GetSpeedFactor() * 100.0;
+				break;
+
+			case 10: // X
+				{
+					float m[MaxAxes];
+					reprap.GetMove().GetCurrentMachinePosition(m, false);
+					currentValue = m[X_AXIS];
+				}
+				break;
+
+			case 11: // Y
+				{
+					float m[MaxAxes];
+					reprap.GetMove().GetCurrentMachinePosition(m, false);
+					currentValue = m[Y_AXIS];
+				}
+				break;
+
+			case 12: // Z
+				{
+					float m[MaxAxes];
+					reprap.GetMove().GetCurrentMachinePosition(m, false);
+					currentValue = m[Z_AXIS];
+				}
+				break;
+
+			case 13: // E0
+				currentValue = reprap.GetGCodes().GetRawExtruderTotalByDrive(0);
+				break;
+
+			case 14: // E1
+				currentValue = reprap.GetGCodes().GetRawExtruderTotalByDrive(1);
+				break;
+
+			case 15: // E2
+				currentValue = reprap.GetGCodes().GetRawExtruderTotalByDrive(2);
+				break;
+
+			case 16: // E3
+				currentValue = reprap.GetGCodes().GetRawExtruderTotalByDrive(3);
+				break;
+
+			case 20:
+				currentValue = reprap.GetCurrentToolNumber();
 				break;
 
 			default:
@@ -121,65 +233,191 @@ const char* ValueMenuItem::Select()
 	return nullptr;
 }
 
-bool ValueMenuItem::Adjust(int clicks)
+PixelNumber ValueMenuItem::GetVisibilityRowOffset(PixelNumber tCurrentOffset, const LcdFont *oFont)
 {
-	if (clicks == 0)	// if button has been pressed
+	// TODO
+
+	return 0;
+}
+
+bool ValueMenuItem::Adjust_SelectHelper()
+{
+	const unsigned int itemNumber = valIndex % 100;
+
+	bool error = false;
+	switch (valIndex/100)
 	{
-		bool error = false;
-		const unsigned int itemNumber = valIndex % 100;
-		switch (valIndex/100)
+	case 1: // heater active temperature
 		{
-		case 1:		// heater active temperature
-			reprap.GetGCodes().SetItemActiveTemperature(itemNumber, currentValue);
-			break;
-
-		case 2:		// heater standby temperature
-			reprap.GetGCodes().SetItemStandbyTemperature(itemNumber, currentValue);
-			break;
-
-		case 3:		// fan %
-			if (itemNumber == 99)
+			unsigned int uToolNumber = itemNumber;
+			if (79 == itemNumber)
 			{
-				reprap.GetGCodes().SetMappedFanSpeed(currentValue * 0.01);
+				uToolNumber = reprap.GetCurrentToolNumber();
 			}
-			else
+
+			if (1 > currentValue) // 0 is off
 			{
-				reprap.GetPlatform().SetFanValue(itemNumber, currentValue * 0.01);
+				reprap.GetGCodes().SetItemActiveTemperature(uToolNumber, -273.15f);
 			}
+			else // otherwise ensure the tool is made active at the same time (really only matters for 79)
+			{
+				reprap.SelectTool(uToolNumber, false);
+				reprap.GetGCodes().SetItemActiveTemperature(uToolNumber, currentValue);
+			}
+		}
+		break;
+
+	case 2: // heater standby temperature
+		reprap.GetGCodes().SetItemStandbyTemperature(itemNumber, (1 > currentValue) ? -273.15f : currentValue);
+		break;
+
+	case 3: // fan %
+		if (itemNumber == 99)
+		{
+			reprap.GetGCodes().SetMappedFanSpeed(currentValue * 0.01);
+		}
+		else
+		{
+			reprap.GetPlatform().SetFanValue(itemNumber, currentValue * 0.01);
+		}
+		break;
+
+	case 4: // extruder %
+		reprap.GetGCodes().SetExtrusionFactor(itemNumber, currentValue * 0.01);
+		break;
+
+	case 5: // misc.
+		switch (itemNumber)
+		{
+		case 0:
+			reprap.GetGCodes().SetSpeedFactor(currentValue * 0.01);
 			break;
 
-		case 4:		// extruder %
-			reprap.GetGCodes().SetExtrusionFactor(itemNumber, currentValue * 0.01);
-			break;
-
-		case 5:		// misc
-			switch (itemNumber)
-			{
-			case 0:
-				reprap.GetGCodes().SetSpeedFactor(currentValue * 0.01);
-				break;
-
-			default:
-				error = true;
-				break;
-			}
+		case 20:
+			reprap.SelectTool(currentValue, false);
 			break;
 
 		default:
 			error = true;
 			break;
 		}
+		break;
 
-		if (error)
-		{
-			reprap.GetDisplay().ErrorBeep();
-		}
-		adjusting = false;
-		return true;
+	default:
+		error = true;
+		break;
 	}
 
-	currentValue += (float)clicks;			// currently we always adjust by 1
+	if (error)
+	{
+		reprap.GetDisplay().ErrorBeep();
+	}
+	adjusting = false;
+
+	return true;
+}
+
+bool ValueMenuItem::Adjust_AlterHelper(int clicks)
+{
+	const unsigned int itemNumber = valIndex % 100;
+
+	switch (valIndex/100)
+	{
+	case 1:	// heater active temperature
+		if (itemNumber < 80) // Tool heaters
+		{
+			// If we're decreasing, make any value smaller than 95 go to 0
+			// If we're increasing, make any value between 0 and 95 jump directly to 95
+			// Also cap the maximum (currently 270)
+			if (0 > clicks) // decrementing
+			{
+				currentValue += clicks;
+
+				if (95 > (int)currentValue)
+					currentValue = 0;
+			}
+			else // incrementing
+			{
+				if (0 == currentValue)
+				{
+					currentValue = (95 - 1);
+					// --clicks;
+				}
+
+				currentValue = min<int>(currentValue + clicks, 270); // TODO remove ugly hardcode
+			}
+		}
+		else
+		{
+			currentValue += clicks;
+		}
+		break;
+
+	case 2:	// heater standby temperature
+		if (itemNumber < 80) // Tool heaters
+		{
+			if (0 > clicks) // decrementing
+			{
+				currentValue += clicks;
+
+				if (95 > (int)currentValue)
+					currentValue = 0;
+			}
+			else // incrementing
+			{
+				if (0 == currentValue)
+				{
+					currentValue = (95 - 1);
+					// --clicks;
+				}
+
+				currentValue = min<int>(currentValue + clicks, 270); // TODO remove ugly hardcode
+			}
+		}
+		else
+		{
+			currentValue += clicks;
+		}
+		break;
+
+	case 3: // fan %
+		currentValue = constrain<int>(currentValue + clicks, 0, 100);
+		break;
+
+	case 5: // misc.
+		switch (itemNumber)
+		{
+		case 0: // 500 Feed Rate
+			currentValue = constrain<float>(currentValue + (float)clicks, 10, 500);
+			break;
+
+		case 20: // 520 Tool Selection
+			currentValue = constrain<int>(currentValue + clicks, -1, 255);
+			break;
+
+		default:
+			// error = true;
+			break;
+		}
+		break;
+
+	default:
+		currentValue += (float)clicks;
+		break;
+	}
+
 	return false;
+}
+
+bool ValueMenuItem::Adjust(int clicks)
+{
+	if (clicks == 0)	// if button has been pressed
+	{
+		return Adjust_SelectHelper();
+	}
+
+	// Wheel has scrolled: alter value
+	return Adjust_AlterHelper(clicks);
 }
 
 FilesMenuItem *FilesMenuItem::freelist = nullptr;
@@ -211,9 +449,9 @@ void FilesMenuItem::EnterDirectory(const char *acDir)
 	}
 }
 
-void FilesMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight)
+void FilesMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight, PixelNumber tOffset)
 {
-	lcd.SetCursor(row, column);
+	lcd.SetCursor(row, column); // TODO: consider tOffset
 	lcd.SetRightMargin(rightMargin);
 
 	// We are writing text to line numbers 0, 1, 2 ... m_uDisplayLines - 1
@@ -373,6 +611,13 @@ const char* FilesMenuItem::Select()
 
 		return m_acCommand; // would otherwise break encapsulation, but the return is const
 	}
+}
+
+PixelNumber FilesMenuItem::GetVisibilityRowOffset(PixelNumber tCurrentOffset, const LcdFont *oFont)
+{
+	// TODO
+
+	return 0;
 }
 
 // End

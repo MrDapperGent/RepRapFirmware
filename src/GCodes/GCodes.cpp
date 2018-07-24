@@ -4949,10 +4949,15 @@ bool GCodes::ProcessCommandFromLcd(const char *cmd)
 
 int GCodes::GetHeaterNumber(unsigned int itemNumber) const
 {
-	if (itemNumber < 80)
+	if (itemNumber < 79) // TODO this is a departure from legacy RRF behavior
 	{
 		const Tool * const tool = reprap.GetTool(itemNumber);
 		return (tool != nullptr && tool->HeaterCount() != 0) ? tool->Heater(0) : -1;
+	}
+	if (itemNumber < 80)
+	{
+		const Tool *const tool = reprap.GetCurrentOrDefaultTool();
+		return (nullptr != tool && 0 != tool->HeaterCount()) ? tool->Heater(0) : -1;
 	}
 	if (itemNumber < 90)
 	{
@@ -4968,10 +4973,15 @@ float GCodes::GetItemCurrentTemperature(unsigned int itemNumber) const
 
 float GCodes::GetItemActiveTemperature(unsigned int itemNumber) const
 {
-	if (itemNumber < 80)
+	if (itemNumber < 79) // TODO WARNING
 	{
 		const Tool * const tool = reprap.GetTool(itemNumber);
 		return (tool != nullptr) ? tool->GetToolHeaterActiveTemperature(0) : 0.0;
+	}
+	if (itemNumber < 80)
+	{
+		const Tool *const tool = reprap.GetCurrentTool();
+		return (nullptr != tool) ? tool->GetToolHeaterActiveTemperature(0) : 0.0f;
 	}
 
 	return reprap.GetHeat().GetActiveTemperature(GetHeaterNumber(itemNumber));
@@ -4979,10 +4989,15 @@ float GCodes::GetItemActiveTemperature(unsigned int itemNumber) const
 
 float GCodes::GetItemStandbyTemperature(unsigned int itemNumber) const
 {
-	if (itemNumber < 80)
+	if (itemNumber < 79) // TODO WARNING
 	{
 		const Tool * const tool = reprap.GetTool(itemNumber);
 		return (tool != nullptr) ? tool->GetToolHeaterStandbyTemperature(0) : 0.0;
+	}
+	if (itemNumber < 80)
+	{
+		const Tool *const tool = reprap.GetCurrentTool();
+		return (nullptr != tool) ? tool->GetToolHeaterStandbyTemperature(0) : 0.0;
 	}
 
 	return reprap.GetHeat().GetStandbyTemperature(GetHeaterNumber(itemNumber));
@@ -4990,6 +5005,7 @@ float GCodes::GetItemStandbyTemperature(unsigned int itemNumber) const
 
 void GCodes::SetItemActiveTemperature(unsigned int itemNumber, float temp)
 {
+	// if (itemNumber < 79)
 	if (itemNumber < 80)
 	{
 		Tool * const tool = reprap.GetTool(itemNumber);
@@ -4997,7 +5013,17 @@ void GCodes::SetItemActiveTemperature(unsigned int itemNumber, float temp)
 		{
 			tool->SetToolHeaterActiveTemperature(0, temp);
 		}
+
+		// TODO: if the user has set to non-zero, set the tool active
 	}
+	// else if (itemNumber < 80)
+	// {
+		// Tool *const tool = reprap.GetCurrentTool();
+		// if (nullptr != tool)
+		// {
+			// tool->SetToolHeaterActiveTemperature(0, temp);
+		// }
+	// }
 	else
 	{
 		reprap.GetHeat().SetActiveTemperature(GetHeaterNumber(itemNumber), temp);
@@ -5006,10 +5032,18 @@ void GCodes::SetItemActiveTemperature(unsigned int itemNumber, float temp)
 
 void GCodes::SetItemStandbyTemperature(unsigned int itemNumber, float temp)
 {
-	if (itemNumber < 80)
+	if (itemNumber < 79)
 	{
 		Tool * const tool = reprap.GetTool(itemNumber);
 		if (tool != nullptr)
+		{
+			tool->SetToolHeaterStandbyTemperature(0, temp);
+		}
+	}
+	else if (itemNumber < 80)
+	{
+		Tool *const tool = reprap.GetCurrentTool();
+		if (nullptr != tool)
 		{
 			tool->SetToolHeaterStandbyTemperature(0, temp);
 		}
