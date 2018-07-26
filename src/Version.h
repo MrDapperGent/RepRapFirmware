@@ -25,6 +25,6 @@
 # define DATE "2018-07-20b2"
 #endif
 
-#define AUTHORS "reprappro, dc42, chrishamm, t3p3, dnewman"
+#define AUTHORS "reprappro, dc42, chrishamm, t3p3, dnewman, 3dmatt, printm3d"
 
 #endif /* SRC_VERSION_H_ */

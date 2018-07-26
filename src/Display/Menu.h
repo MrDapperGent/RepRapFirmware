@@ -22,6 +22,8 @@ public:
 	void Refresh();
 
 private:
+	void LoadFixedMenu();
+	bool bInFixedMenu() const;
 	void ResetCache();
 	void Reload();
 	const char *ParseMenuLine(char *s);
@@ -30,7 +32,6 @@ private:
 	const char *const AppendString(const char *s);
 	void LoadImage(const char *fname);
 	MenuItem *FindHighlightedItem() const;
-	bool ShowBasedOnPrinterState(const char *const acText, const char *const acDescription);
 
 	void EncoderAction_EnterItemHelper();
 	void EncoderAction_AdjustItemHelper(int action);
@@ -39,6 +40,7 @@ private:
 
 	static const char *SkipWhitespace(const char *s);
 	static char *SkipWhitespace(char *s);
+	static bool bCheckVisibility(MenuItem::Visibility xVis);
 
 	static const size_t CommandBufferSize = 512;
 	static const size_t MaxMenuLineLength = 80; // adjusts behavior in Reload()
@@ -63,9 +65,11 @@ private:
 	int m_nHighlightedItem;
 	bool itemIsSelected;
 
+	const char *const m_pcFixedMenu = "zzFixed";
+
 	// Variables used while parsing
 	size_t commandBufferIndex;
-	unsigned int fontNumber;
+	MenuItem::FontNumber fontNumber;
 	PixelNumber currentMargin;
 	PixelNumber row, column;
 

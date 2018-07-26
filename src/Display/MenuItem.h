@@ -18,6 +18,8 @@ class MenuItem
 {
 public:
 	typedef uint8_t FontNumber;
+	typedef uint8_t Visibility;
+	typedef bool (*CheckFunction) (uint8_t);
 
 	// Draw this element on the LCD respecting 'maxWidth' and 'highlight'
 	virtual void Draw(Lcd7920& lcd, PixelNumber maxWidth, bool highlight, PixelNumber tOffset) = 0;
@@ -26,6 +28,8 @@ public:
 	// If it returns nullptr then go into adjustment mode.
 	// Else execute the returned command.
 	virtual const char* Select() = 0;
+
+	virtual bool Visible() const { return true; }
 
 	// Actions to be taken when the menu system selects this item
 	virtual void Enter(bool bForwardDirection) {};
@@ -66,7 +70,8 @@ public:
 	void* operator new(size_t sz) { return Allocate<TextMenuItem>(); }
 	void operator delete(void* p) { Release<TextMenuItem>(p); }
 
-	TextMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, const char *t);
+	TextMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, Visibility xVis, CheckFunction bF, const char *t);
+	bool Visible() const override;
 	void Draw(Lcd7920& lcd, PixelNumber maxWidth, bool highlight, PixelNumber tOffset) override;
 
 	const char* Select() override;
@@ -75,6 +80,9 @@ private:
 	static TextMenuItem *freelist;
 
 	const char *text;
+
+	const Visibility m_xVisCase;
+	const CheckFunction m_bF;
 };
 
 class ButtonMenuItem : public MenuItem
@@ -83,7 +91,8 @@ public:
 	void* operator new(size_t sz) { return Allocate<ButtonMenuItem>(); }
 	void operator delete(void* p) { Release<ButtonMenuItem>(p); }
 
-	ButtonMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, const char *t, const char *cmd, const char *acFile);
+	ButtonMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, Visibility xVis, CheckFunction bF, const char *t, const char *cmd, const char *acFile);
+	bool Visible() const override;
 	void Draw(Lcd7920& lcd, PixelNumber maxWidth, bool highlight, PixelNumber tOffset) override;
 	const char* Select() override;
 
@@ -95,6 +104,9 @@ private:
 	const char *text;
 	const char *command;
 	const char *m_acFile; // used when action ("command") is "menu"
+
+	const Visibility m_xVisCase;
+	const CheckFunction m_bF;
 
 	// Scratch -- consumer is required to use as soon as it's returned
 	// NOT THREAD SAFE!

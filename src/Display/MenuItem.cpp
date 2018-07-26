@@ -13,6 +13,7 @@
 #include "Movement/Move.h"
 #include "Display.h"
 #include "Tools/Tool.h"
+#include "Networking/Network.h"
 
 MenuItem::MenuItem(PixelNumber r, PixelNumber c, FontNumber fn)
 	: row(r), column(c), fontNumber(fn), next(nullptr)
@@ -31,26 +32,34 @@ MenuItem::MenuItem(PixelNumber r, PixelNumber c, FontNumber fn)
 
 TextMenuItem *TextMenuItem::freelist = nullptr;
 
-TextMenuItem::TextMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, const char* t)
-	: MenuItem(r, c, fn), text(t)
+TextMenuItem::TextMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, Visibility xVis, CheckFunction bF, const char* t)
+	: MenuItem(r, c, fn), text(t), m_xVisCase(xVis), m_bF(bF)
 {
+}
+
+bool TextMenuItem::Visible() const
+{
+	return m_bF(m_xVisCase);
 }
 
 void TextMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight, PixelNumber tOffset)
 {
-	lcd.SetCursor(row - tOffset, column);
-	// lcd.SetRightMargin(rightMargin);
+	if (Visible())
+	{
+		lcd.SetCursor(row - tOffset, column);
+		// lcd.SetRightMargin(rightMargin);
 
-	lcd.TextInvert(false);
-	lcd.print(text);
+		lcd.TextInvert(false);
+		lcd.print(text);
 
-	// lcd.SetCursor(row + currentMargin, column + currentMargin);
-	// lcd.SetFont(fonts[fontNumber]);
-	// lcd.print(text);
-	// row = lcd.GetRow() - currentMargin;
-	// column = lcd.GetColumn() - currentMargin;
+		// lcd.SetCursor(row + currentMargin, column + currentMargin);
+		// lcd.SetFont(fonts[fontNumber]);
+		// lcd.print(text);
+		// row = lcd.GetRow() - currentMargin;
+		// column = lcd.GetColumn() - currentMargin;
 
-	// lcd.ClearToMargin();
+		// lcd.ClearToMargin();
+	}
 }
 
 // TODO need to clean up this design since it isn't meaningful to select a text item
@@ -61,15 +70,20 @@ const char* TextMenuItem::Select()
 
 ButtonMenuItem *ButtonMenuItem::freelist = nullptr;
 
-ButtonMenuItem::ButtonMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, const char* t, const char* cmd, char const* acFile)
-	: MenuItem(r, c, fn), text(t), command(cmd), m_acFile(acFile)
+ButtonMenuItem::ButtonMenuItem(PixelNumber r, PixelNumber c, FontNumber fn, Visibility xVis, CheckFunction bF, const char* t, const char* cmd, char const* acFile)
+	: MenuItem(r, c, fn), text(t), command(cmd), m_acFile(acFile), m_xVisCase(xVis), m_bF(bF)
 {
 	m_acCommand[0] = '\0';
 }
 
+bool ButtonMenuItem::Visible() const
+{
+	return m_bF(m_xVisCase);
+}
+
 void ButtonMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight, PixelNumber tOffset)
 {
-	if (column < NumCols)
+	if (Visible() && column < NumCols)
 	{
 		lcd.SetCursor(row - tOffset, column);
 		lcd.SetRightMargin(rightMargin);
@@ -214,12 +228,30 @@ void ValueMenuItem::Draw(Lcd7920& lcd, PixelNumber rightMargin, bool highlight, 
 				currentValue = reprap.GetGCodes().GetRawExtruderTotalByDrive(3);
 				break;
 
+			// TODO: drives on some configurations could go up to 519, avoid this collision:
 			case 19: // Z baby-step
 				currentValue = reprap.GetGCodes().GetBabyStepOffset();
 				break;
 
 			case 20:
 				currentValue = reprap.GetCurrentToolNumber();
+				break;
+
+			// Platform's IP address is the "planned", Network's IP address is the "actual"
+			case 30:
+				currentValue = reprap.GetNetwork().GetIPAddress(0)[0];
+				break;
+
+			case 31:
+				currentValue = reprap.GetNetwork().GetIPAddress(0)[1];
+				break;
+
+			case 32:
+				currentValue = reprap.GetNetwork().GetIPAddress(0)[2];
+				break;
+
+			case 33:
+				currentValue = reprap.GetNetwork().GetIPAddress(0)[3];
 				break;
 
 			default:

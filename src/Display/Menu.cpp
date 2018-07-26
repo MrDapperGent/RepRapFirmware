@@ -12,7 +12,7 @@
  *    ; display the image from "filename" at position RC
  *  text [Rnn] [Cnn] [Fnn] T"text"
  *    ; display non-selectable "text" at position RC
- *  button [Rnn] [Cnn] [Fnn] T"text" A"action" [L"filename"]
+ *  button [Rnn] [Cnn] [Fnn] [Vnn] T"text" A"action" [L"filename"]
  *    ; display selectable "text" at RC, perform action when clicked
  *  value [Rnn] [Cnn] [Fnn] [Dnn] Wnnn Nvvv
  *    ; display the specified value at RC to the specified number of decimal places in the specified width
@@ -25,6 +25,18 @@
  *  Cnn is the column number for the left of the element measured in pixels from the left hand edge of the display
  *  Fnn is the font to use, 0=small 1=large
  *  Wnn is the width in pixels for the element
+ *  Dnn specifies the number of decimal places for numeric display
+ *
+ *  Vnn specifies the item's visibility with value:
+ *   0  always visible (default if not specified)
+ *   2  visible when the printer is actively printing (actively printing defined as not paused, pausing or resuming)
+ *   3  visible when the printer is NOT actively printing
+ *   4  visible when the printer is printing (includes paused, pausing and resuming states)
+ *   5  visible when the printer is NOT printing
+ *   6  visible when the printer is printing and in paused state (paused or pausing)
+ *   7  visible when the printer is printing and NOT in paused state (actively printing or resuming)
+ *   10 visible when SD card 0 is mounted
+ *   11 visible when SD card 0 is NOT mounted
  *
  *  "action" can be any of:
  *  - a Gcode command string (must begin with G, M or T). In such a string, #0 represents the full name of the current file, in double quotes, set when a file is selected
@@ -54,16 +66,19 @@
  *  510-516		Current axis location (X, Y, Z, E0, E1, E2, E3 respectively) (display only)
  *  519			Z baby-step offset (display only)
  *  520			Currently selected tool number
+ *  530-533		Actual IP address, octets 1 through 4
  */
 
 #include "Menu.h"
 #include "ST7920/lcd7920.h"
 #include "RepRap.h"
 #include "Platform.h"
-#include "Storage/MassStorage.h"
-#include "GCodes/GCodes.h"
-#include "Display/Display.h"
 #include "PrintMonitor.h"
+#include "Display/Display.h"
+#include "GCodes/GCodes.h"
+#include "Heating/Heat.h"
+#include "Storage/MassStorage.h"
+#include "Tools/Tool.h"
 
 Menu::Menu(Lcd7920& refLcd, const LcdFont * const fnts[], size_t nFonts)
 	: lcd(refLcd), fonts(fnts), numFonts(nFonts),
@@ -105,6 +120,54 @@ void Menu::Load(const char* filename)
 		++numNestedMenus;
 		Reload();
 	}
+}
+
+void Menu::LoadFixedMenu()
+{
+	if (numNestedMenus < MaxMenuNesting)
+	{
+		filenames[numNestedMenus].copy(m_pcFixedMenu);
+
+		m_tRowOffset = 0;
+
+		currentMargin = 0;
+		lcd.Clear();
+
+		++numNestedMenus;
+
+		// Instead of Reload():
+		lcd.SetRightMargin(NumCols - currentMargin);
+
+		ResetCache();
+
+		char acLine1[] = "text R3 C5 F0 T\"No SD Card Found\"";
+		char acLine2[] = "button R15 C5 F0 T\"Mount SD\" A\"M21\"";
+
+		const char *errMsg = ParseMenuLine(acLine1);
+		if (nullptr != errMsg)
+		{
+			LoadError(errMsg, 1);
+		}
+		if (commandBufferIndex == sizeof(commandBuffer))
+		{
+			LoadError("|Menu buffer full", 1);
+		}
+
+		errMsg = ParseMenuLine(acLine2);
+		if (nullptr != errMsg)
+		{
+			LoadError(errMsg, 2);
+		}
+		if (commandBufferIndex == sizeof(commandBuffer))
+		{
+			LoadError("|Menu buffer full", 2);
+		}
+	}
+}
+
+bool Menu::bInFixedMenu() const
+{
+	return ((0 != numNestedMenus) && (0 == strcmp(filenames[numNestedMenus - 1].c_str(), m_pcFixedMenu)));
 }
 
 void Menu::Pop()
@@ -167,6 +230,7 @@ const char *Menu::ParseMenuLine(char *commandWord)
 	}
 
 	// Parse the arguments
+	MenuItem::Visibility xVis = 0;
 	unsigned int decimals = 0;
 	unsigned int nparam = 0;
 	unsigned int width = DefaultNumberWidth;
@@ -194,6 +258,10 @@ const char *Menu::ParseMenuLine(char *commandWord)
 
 		case 'F':
 			fontNumber = min<unsigned int>(SafeStrtoul(args, &args), numFonts - 1);
+			break;
+
+		case 'V':
+			xVis = SafeStrtoul(args, &args);
 			break;
 
 		case 'D':
@@ -240,12 +308,16 @@ const char *Menu::ParseMenuLine(char *commandWord)
 	if (StringEquals(commandWord, "text"))
 	{
 		const char *const acText = AppendString(text);
-		AddItem(new TextMenuItem(row, column, fontNumber, acText), false);
+		MenuItem *pNewItem = new TextMenuItem(row, column, fontNumber, xVis, &(Menu::bCheckVisibility), acText);
+		AddItem(pNewItem, false);
 
-		lcd.SetFont(fonts[fontNumber]);
-		lcd.print(text);
-		row = lcd.GetRow() - currentMargin;
-		column = lcd.GetColumn() - currentMargin;
+		if (pNewItem->Visible())
+		{
+			lcd.SetFont(fonts[fontNumber]);
+			lcd.print(text);
+			row = lcd.GetRow() - currentMargin;
+			column = lcd.GetColumn() - currentMargin;
+		}
 	}
 	else if (StringEquals(commandWord, "image") && fname != nullptr)
 	{
@@ -253,13 +325,16 @@ const char *Menu::ParseMenuLine(char *commandWord)
 	}
 	else if (StringEquals(commandWord, "button"))
 	{
-		if (ShowBasedOnPrinterState(text, fname))
+		const char * const textString = AppendString(text);
+		const char * const actionString = AppendString(action);
+		const char *const c_acFileString = AppendString(fname);
+		MenuItem::CheckFunction bF = &(Menu::bCheckVisibility);
+		ButtonMenuItem *pNewItem = new ButtonMenuItem(row, column, fontNumber, xVis, bF, textString, actionString, c_acFileString);
+		AddItem(pNewItem, true);
+
+		// Print the button as well so that we can update the row and column
+		if (pNewItem->Visible())
 		{
-			const char * const textString = AppendString(text);
-			const char * const actionString = AppendString(action);
-			const char *const c_acFileString = AppendString(fname);
-			AddItem(new ButtonMenuItem(row, column, fontNumber, textString, actionString, c_acFileString), true);
-			// Print the button as well so that we can update the row and column
 			lcd.SetFont(fonts[fontNumber]);
 			lcd.print(text);
 			row = lcd.GetRow() - currentMargin;
@@ -367,8 +442,10 @@ void Menu::Reload()
 
 void Menu::AddItem(MenuItem *item, bool isSelectable)
 {
-	MenuItem::AppendToList((isSelectable) ? &selectableItems : &unSelectableItems, item);
-	if (isSelectable)
+	// NOTE: this works for rudimentary needs, but items will not "hop" from unselectable to selectable
+	//   list, even when conditions warrant the same, without a reload of the menu
+	MenuItem::AppendToList((item->Visible() && isSelectable) ? &selectableItems : &unSelectableItems, item);
+	if (item->Visible() && isSelectable)
 	{
 		++numSelectableItems;
 	}
@@ -549,8 +626,19 @@ void Menu::LoadImage(const char *fname)
 // Refresh is called every Spin() of the Display under most circumstances; an appropriate place to check if timeout action needs to be taken
 void Menu::Refresh()
 {
-	if (m_bTimeoutEnabled && (millis() - m_uLastActionTime > 20000)) // 20 seconds following latest user action
+	if (!reprap.GetPlatform().GetMassStorage()->IsDriveMounted(0))
 	{
+		if (!bInFixedMenu())
+		{
+			// When the SD card is not mounted, we show a fixed menu for graceful recovery
+			numNestedMenus = 0;
+			LoadFixedMenu();
+		}
+	}
+	else if (bInFixedMenu() || (m_bTimeoutEnabled && (millis() - m_uLastActionTime > 20000)))
+	{
+		// Showing fixed menu but SD card is now mounted, or 20 seconds following latest user action
+
 		// Go to the top menu (just discard information)
 		numNestedMenus = 0;
 		Load("main");
@@ -558,24 +646,24 @@ void Menu::Refresh()
 		m_bTimeoutEnabled = false;
 		// m_uLastActionTime = millis();
 	}
-	else
+
+	const PixelNumber rightMargin = NumCols - currentMargin;
+	int nItemBeingDrawnIndex = 0;
+
+	for (MenuItem *item = selectableItems; item != nullptr; item = item->GetNext())
 	{
-		const PixelNumber rightMargin = NumCols - currentMargin;
-		int nItemBeingDrawnIndex = 0;
+		// TODO: move this into the item Draw() routine
+		lcd.SetFont(fonts[item->GetFontNumber()]);
+		item->Draw(lcd, rightMargin, (nItemBeingDrawnIndex == m_nHighlightedItem), m_tRowOffset);
+		++nItemBeingDrawnIndex;
+	}
 
-		for (MenuItem *item = selectableItems; item != nullptr; item = item->GetNext())
-		{
-			lcd.SetFont(fonts[item->GetFontNumber()]);
-			item->Draw(lcd, rightMargin, (nItemBeingDrawnIndex == m_nHighlightedItem), m_tRowOffset);
-			++nItemBeingDrawnIndex;
-		}
-
-		for (MenuItem *item = unSelectableItems; item != nullptr; item = item->GetNext())
-		{
-			lcd.SetFont(fonts[item->GetFontNumber()]);
-			item->Draw(lcd, rightMargin, false, m_tRowOffset);
-			// ++nItemBeingDrawnIndex; // unused
-		}
+	for (MenuItem *item = unSelectableItems; item != nullptr; item = item->GetNext())
+	{
+		// TODO: move this into the item Draw() routine
+		lcd.SetFont(fonts[item->GetFontNumber()]);
+		item->Draw(lcd, rightMargin, false, m_tRowOffset);
+		// ++nItemBeingDrawnIndex; // unused
 	}
 }
 
@@ -589,47 +677,61 @@ MenuItem *Menu::FindHighlightedItem() const
 	return p;
 }
 
-// FUTURE: would like this to become part of the menu file schema, a fixed set
-// of status checks each item could use to determine its visibility
-bool Menu::ShowBasedOnPrinterState(const char *const acText, const char *const acDescription)
+bool Menu::bCheckVisibility(MenuItem::Visibility xVis)
 {
-	bool bShow = true;
+	bool bVisible = false;
 
-	if (0 == strcmp("s_prepare", acDescription))
+	switch (xVis)
 	{
-		bShow = !reprap.GetGCodes().IsReallyPrinting();
-	}
-	else if (0 == strcmp("s_tune", acDescription))
-	{
-		// TODO: what about paused state?  is that Prepare or Tune?
-		bShow = reprap.GetGCodes().IsReallyPrinting();
-	}
-	else if (0 == strcmp("Print from SD »", acText))
-	{
-		bShow = !reprap.GetPrintMonitor().IsPrinting();
-	}
-	else if (0 == strcmp("Resume Print", acText))
-	{
-		bShow = reprap.GetGCodes().IsPaused() || reprap.GetGCodes().IsPausing();
-	}
-	else if (0 == strcmp("Pause Print", acText))
-	{
-		bShow = reprap.GetGCodes().IsReallyPrinting() || reprap.GetGCodes().IsResuming();
-	}
-	else if (0 == strcmp("Mount SD", acText))
-	{
-		bShow = !reprap.GetPlatform().GetMassStorage()->IsDriveMounted(0);
-	}
-	else if (0 == strcmp("Unmount SD", acText))
-	{
-		bShow = reprap.GetPlatform().GetMassStorage()->IsDriveMounted(0);
-	}
-	else if (0 == strcmp("Cancel Print", acText))
-	{
-		bShow = reprap.GetPrintMonitor().IsPrinting();
+	case 0:
+		bVisible = true;
+		break;
+
+	case 2:
+		bVisible = reprap.GetGCodes().IsReallyPrinting();
+		break;
+
+	case 3:
+		bVisible = !reprap.GetGCodes().IsReallyPrinting();
+		break;
+
+	case 4:
+		bVisible = reprap.GetPrintMonitor().IsPrinting();
+		break;
+
+	case 5:
+		bVisible = !reprap.GetPrintMonitor().IsPrinting();
+		break;
+
+	case 6:
+		bVisible = reprap.GetGCodes().IsPaused() || reprap.GetGCodes().IsPausing();
+		break;
+
+	case 7:
+		bVisible = reprap.GetGCodes().IsReallyPrinting() || reprap.GetGCodes().IsResuming();
+		break;
+
+	case 10:
+		bVisible = reprap.GetPlatform().GetMassStorage()->IsDriveMounted(0);
+		break;
+
+	case 11:
+		bVisible = !reprap.GetPlatform().GetMassStorage()->IsDriveMounted(0);
+		break;
+
+	case 20:
+		bVisible = reprap.GetCurrentOrDefaultTool()->HasTemperatureFault();
+		break;
+
+	case 28:
+		bVisible = (Heat::HS_fault == reprap.GetHeat().GetStatus(reprap.GetHeat().GetBedHeater(0)));
+		break;
+
+	default:
+		break;
 	}
 
-	return bShow;
+	return bVisible;
 }
 
 // End
